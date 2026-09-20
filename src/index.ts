@@ -7,6 +7,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { Client, GatewayIntentBits, TextChannel, ChannelType, PermissionFlagsBits, GuildMember } from 'discord.js';
 import { z } from 'zod';
+import { readMessages } from './read-messages.js';
 
 // Load environment variables
 dotenv.config();
@@ -97,12 +98,6 @@ const SendMessageSchema = z.object({
   server: z.string().optional().describe('Server name or ID (optional if bot is only in one server)'),
   channel: z.string().describe('Channel name (e.g., "general") or ID'),
   message: z.string(),
-});
-
-const ReadMessagesSchema = z.object({
-  server: z.string().optional().describe('Server name or ID (optional if bot is only in one server)'),
-  channel: z.string().describe('Channel name (e.g., "general") or ID'),
-  limit: z.number().min(1).max(100).default(50),
 });
 
 const CreateCategorySchema = z.object({
@@ -332,7 +327,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: "read-messages",
-        description: "Read recent messages from a Discord channel",
+        description: "Read recent messages with IDs, links, embeds, attachments, reactions, and reply references (newest first)",
         inputSchema: {
           type: "object",
           properties: {
@@ -345,7 +340,9 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               description: 'Channel name (e.g., "general") or ID',
             },
             limit: {
-              type: "number",
+              type: "integer",
+              minimum: 1,
+              maximum: 100,
               description: "Number of messages to fetch (max 100)",
               default: 50,
             },
@@ -589,24 +586,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case "read-messages": {
-        const { channel: channelIdentifier, limit } = ReadMessagesSchema.parse(args);
-        const channel = await findChannel(channelIdentifier);
-        
-        const messages = await channel.messages.fetch({ limit });
-        const formattedMessages = Array.from(messages.values()).map(msg => ({
-          channel: `#${channel.name}`,
-          server: channel.guild.name,
-          author: msg.author.tag,
-          content: msg.content,
-          timestamp: msg.createdAt.toISOString(),
-        }));
-
-        return {
-          content: [{
-            type: "text",
-            text: JSON.stringify(formattedMessages, null, 2),
-          }],
-        };
+        return await readMessages(args, findChannel);
       }
 
       case "create-category": {

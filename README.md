@@ -8,7 +8,7 @@ A fork of [v-3/discordmcp](https://github.com/v-3/discordmcp) with expanded capa
 |---|---|
 | **Messaging** | |
 | `send-message` | Send a plain text message to a channel |
-| `read-messages` | Read recent messages from a channel (up to 100) |
+| `read-messages` | Read recent messages with IDs, embeds, attachments, reactions, and reply references (up to 100) |
 | `send-embed` | Send a rich embed with title, description, color, fields, footer, images |
 | `edit-message` | Edit an existing message sent by the bot |
 | `edit-embed` | Edit an existing embed sent by the bot |
@@ -38,6 +38,35 @@ A fork of [v-3/discordmcp](https://github.com/v-3/discordmcp) with expanded capa
 | `kick-member` | Kick a member from the server |
 | `ban-member` | Ban a member with optional message deletion |
 | `unban-user` | Unban a user by ID |
+
+## Reading messages
+
+`read-messages` accepts `channel` (name or ID), optional `server` (name or ID),
+and an integer `limit` from 1 to 100 (default 50). The response remains a JSON
+array in the MCP text result, newest first, with the original `channel`, `server`,
+`author`, `content`, and `timestamp` fields preserved.
+
+Each message also includes:
+- `id`, `url`, `channelId`, `serverId`, `authorId`, and `authorBot`.
+- `editedTimestamp`, `type`, and `pinned`.
+- `embeds`: complete Discord embed JSON, including fields, footer and images.
+- `attachments`: IDs, filenames, descriptions, URLs, MIME types, byte sizes,
+  dimensions and spoiler flags. Files are not downloaded; URLs may expire.
+- `reactions`: emoji ID/name/animation, count, and whether the bot reacted.
+- `reference`: referenced message/channel/server IDs and a link when available.
+- `replyPreview`: author, text and embeds only when the referenced message is in
+  the same fetched batch. Otherwise null; no extra history requests are made.
+- `thread`: attached thread metadata when available, otherwise null.
+
+Empty text does not imply an empty message: check `embeds` and `attachments`.
+Discord permissions and Message Content Intent still determine what data is
+available. Missing previews do not imply deleted messages. Reading thread
+history and downloading attachment contents are not part of this tool.
+
+## Testing
+
+Run `npm test` to compile and run offline reader regression tests. No bot token
+or Discord connection is needed. Tests use Node's built-in test runner (Node 18+).
 
 ## Prerequisites
 
