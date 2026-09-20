@@ -8,6 +8,7 @@ import {
 import { Client, GatewayIntentBits, TextChannel, ChannelType, PermissionFlagsBits, GuildMember } from 'discord.js';
 import { z } from 'zod';
 import { readMessages } from './read-messages.js';
+import { editEmbed } from './edit-embed.js';
 
 // Load environment variables
 dotenv.config();
@@ -176,19 +177,6 @@ const EditMessageSchema = z.object({
   channel: z.string().describe('Channel name or ID'),
   messageId: z.string().describe('Message ID to edit'),
   message: z.string().describe('New message content'),
-});
-
-const EditEmbedSchema = z.object({
-  server: z.string().optional().describe('Server name or ID'),
-  channel: z.string().describe('Channel name or ID'),
-  messageId: z.string().describe('Message ID containing the embed to edit'),
-  title: z.string().optional(),
-  description: z.string().optional(),
-  color: z.string().optional(),
-  fields: z.array(z.object({ name: z.string(), value: z.string(), inline: z.boolean().optional() })).optional(),
-  footer: z.string().optional(),
-  thumbnail: z.string().optional(),
-  image: z.string().optional(),
 });
 
 const PinMessageSchema = z.object({
@@ -499,8 +487,24 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: "edit-embed",
-        description: "Edit an existing embed message sent by the bot",
-        inputSchema: { type: "object", properties: { server: { type: "string" }, channel: { type: "string" }, messageId: { type: "string" }, title: { type: "string" }, description: { type: "string" }, color: { type: "string" }, fields: { type: "array", items: { type: "object", properties: { name: { type: "string" }, value: { type: "string" }, inline: { type: "boolean" } }, required: ["name", "value"] } }, footer: { type: "string" }, thumbnail: { type: "string" }, image: { type: "string" } }, required: ["channel", "messageId"] },
+        description: "Update one existing bot embed, preserving omitted fields and other embeds. Use null to remove a field; fields replaces the entire field list.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            server: { type: "string" }, channel: { type: "string" }, messageId: { type: "string" },
+            embedIndex: { type: "integer", minimum: 0, maximum: 9, default: 0, description: "Zero-based index of the existing embed to edit" },
+            title: { type: ["string", "null"], minLength: 1, maxLength: 256 },
+            description: { type: ["string", "null"], minLength: 1, maxLength: 4096 },
+            color: { type: ["string", "null"], pattern: "^#?[0-9a-fA-F]{6}$" },
+            fields: { type: ["array", "null"], maxItems: 25, items: { type: "object", properties: {
+              name: { type: "string", minLength: 1, maxLength: 256 },
+              value: { type: "string", minLength: 1, maxLength: 1024 }, inline: { type: "boolean" },
+            }, required: ["name", "value"] } },
+            footer: { type: ["string", "null"], minLength: 1, maxLength: 2048 },
+            thumbnail: { type: ["string", "null"], format: "uri" },
+            image: { type: ["string", "null"], format: "uri" },
+          }, required: ["channel", "messageId"],
+        },
       },
       {
         name: "pin-message",
@@ -756,19 +760,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case "edit-embed": {
-        const { server: srv, channel: chId, messageId, title, description, color, fields, footer, thumbnail, image } = EditEmbedSchema.parse(args);
-        const channel = await findChannel(chId, srv);
-        const msg = await channel.messages.fetch(messageId);
-        const embed: any = {};
-        if (title) embed.title = title;
-        if (description) embed.description = description;
-        if (color) embed.color = parseInt(color.replace('#', ''), 16);
-        if (fields) embed.fields = fields;
-        if (footer) embed.footer = { text: footer };
-        if (thumbnail) embed.thumbnail = { url: thumbnail };
-        if (image) embed.image = { url: image };
-        await msg.edit({ embeds: [embed] });
-        return { content: [{ type: "text", text: `Embed ${messageId} edited in #${channel.name}.` }] };
+        return await editEmbed(args, findChannel);
       }
 
       case "pin-message": {

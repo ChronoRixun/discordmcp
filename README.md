@@ -63,6 +63,25 @@ Discord permissions and Message Content Intent still determine what data is
 available. Missing previews do not imply deleted messages. Reading thread
 history and downloading attachment contents are not part of this tool.
 
+## Editing embeds safely
+
+`edit-embed` updates an existing embed on a message sent by this bot. Omitted
+properties are preserved. Other embeds, message text, attachments and components
+are left unchanged. `embedIndex` selects an existing embed (zero-based, default 0).
+
+Use `null` to remove a title, description, color, footer, image, thumbnail or field
+list. `fields` replaces the entire list; `[]` clears it. Empty strings are rejected.
+Changing footer text retains its existing icon. Requests with no changes, invalid
+indices, invalid field values or excessive combined embed text fail before editing.
+The message is fetched fresh before merging; simultaneous edits by another client
+can still race because this operation is not an atomic patch.
+
+Example: change only the title and remove the image:
+
+```json
+{"channel":"welcome","messageId":"MESSAGE_ID","title":"Welcome aboard","image":null}
+```
+
 ## Testing
 
 Run `npm test` to compile and run offline reader regression tests. No bot token
