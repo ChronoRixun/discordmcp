@@ -1,29 +1,41 @@
-# Discord MCP Server
+# Discord MCP Server (Extended)
 
-A Model Context Protocol (MCP) server that enables LLMs to interact with Discord channels, allowing them to send and read messages through Discord's API. Using this server, LLMs like Claude can directly interact with Discord channels while maintaining user control and security.
+A fork of [v-3/discordmcp](https://github.com/v-3/discordmcp) with expanded capabilities for full Discord server management from Claude sessions. Beyond sending and reading messages, this fork can create channels, manage embeds, handle reactions, create roles, and moderate content.
 
-## Features
+## Tools
 
-- Send messages to Discord channels
-- Read recent messages from channels
-- Automatic server and channel discovery
-- Support for both channel names and IDs
-- Proper error handling and validation
+| Tool | Description |
+|---|---|
+| `send-message` | Send a plain text message to a channel |
+| `read-messages` | Read recent messages from a channel (up to 100) |
+| `send-embed` | Send a rich embed with title, description, color, fields, footer, images |
+| `create-category` | Create a channel category |
+| `create-channel` | Create a text channel, optionally under a category, with a topic |
+| `list-channels` | List all channels organized by category |
+| `set-channel-topic` | Set or update a channel's topic/description |
+| `lock-channel` | Lock a channel so only admins can post (everyone else reads) |
+| `delete-channel` | Delete a channel |
+| `add-reaction` | Add an emoji reaction to a message |
+| `create-role` | Create a role with a name and color |
+| `list-roles` | List all roles in the server |
+| `delete-message` | Delete a specific message by ID |
 
 ## Prerequisites
 
 - Node.js 16.x or higher
 - A Discord bot token
-- The bot must be invited to your server with proper permissions:
-  - Read Messages/View Channels
-  - Send Messages
-  - Read Message History
+- The bot must be invited to your server with these permissions:
+  - **General:** Manage Server, Manage Channels, Manage Roles, View Channels
+  - **Text:** Send Messages, Manage Messages, Embed Links, Attach Files, Read Message History, Add Reactions, Use External Emojis
+- **Privileged Gateway Intents** enabled in the Developer Portal:
+  - Message Content Intent
+  - Server Members Intent
 
 ## Setup
 
 1. Clone this repository:
 ```bash
-git clone https://github.com/yourusername/discordmcp.git
+git clone https://github.com/ChronoRixun/discordmcp.git
 cd discordmcp
 ```
 
@@ -32,23 +44,15 @@ cd discordmcp
 npm install
 ```
 
-3. Create a `.env` file in the root directory with your Discord bot token:
-```
-DISCORD_TOKEN=your_discord_bot_token_here
-```
-
-4. Build the server:
+3. Build:
 ```bash
 npm run build
 ```
 
-## Usage with Claude for Desktop
+## Claude Code Configuration
 
-1. Open your Claude for Desktop configuration file:
-   - macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
-   - Windows: `%APPDATA%\Claude\claude_desktop_config.json`
+Add to your MCP settings (the token goes in the config file, not in chat):
 
-2. Add the Discord MCP server configuration:
 ```json
 {
   "mcpServers": {
@@ -56,102 +60,44 @@ npm run build
       "command": "node",
       "args": ["path/to/discordmcp/build/index.js"],
       "env": {
-        "DISCORD_TOKEN": "your_discord_bot_token_here"
+        "DISCORD_TOKEN": "your_bot_token_here"
       }
     }
   }
 }
 ```
 
-3. Restart Claude for Desktop
+## Claude Desktop Configuration
 
-## Available Tools
+Add to your Claude Desktop config file:
+- macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
+- Windows: `%APPDATA%\Claude\claude_desktop_config.json`
 
-### send-message
-Sends a message to a specified Discord channel.
-
-Parameters:
-- `server` (optional): Server name or ID (required if bot is in multiple servers)
-- `channel`: Channel name (e.g., "general") or ID
-- `message`: Message content to send
-
-Example:
 ```json
 {
-  "channel": "general",
-  "message": "Hello from MCP!"
+  "mcpServers": {
+    "discord": {
+      "command": "node",
+      "args": ["path/to/discordmcp/build/index.js"],
+      "env": {
+        "DISCORD_TOKEN": "your_bot_token_here"
+      }
+    }
+  }
 }
 ```
 
-### read-messages
-Reads recent messages from a specified Discord channel.
+## Multi-Server Support
 
-Parameters:
-- `server` (optional): Server name or ID (required if bot is in multiple servers)
-- `channel`: Channel name (e.g., "general") or ID
-- `limit` (optional): Number of messages to fetch (default: 50, max: 100)
+If the bot is in multiple servers, pass the `server` parameter (name or ID) to any tool. If the bot is in only one server, the parameter is optional.
 
-Example:
-```json
-{
-  "channel": "general",
-  "limit": 10
-}
-```
+## Security
 
-## Development
+- All tool operations require explicit user approval in Claude
+- The bot token is stored in local configuration, never transmitted through chat
+- Channel and server access follows Discord's permission model
 
-1. Install development dependencies:
-```bash
-npm install --save-dev typescript @types/node
-```
+## Credits
 
-2. Start the server in development mode:
-```bash
-npm run dev
-```
-
-## Testing
-
-You can test the server using the MCP Inspector:
-
-```bash
-npx @modelcontextprotocol/inspector node build/index.js
-```
-
-## Examples
-
-Here are some example interactions you can try with Claude after setting up the Discord MCP server:
-
-1. "Can you read the last 5 messages from the general channel?"
-2. "Please send a message to the announcements channel saying 'Meeting starts in 10 minutes'"
-3. "What were the most recent messages in the development channel about the latest release?"
-
-Claude will use the appropriate tools to interact with Discord while asking for your approval before sending any messages.
-
-## Security Considerations
-
-- The bot requires proper Discord permissions to function
-- All message sending operations require explicit user approval
-- Environment variables should be properly secured
-- Token should never be committed to version control
-- Channel access is limited to channels the bot has been given access to
-
-## Contributing
-
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-## License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## Support
-
-If you encounter any issues or have questions:
-1. Check the GitHub Issues section
-2. Consult the MCP documentation at https://modelcontextprotocol.io
-3. Open a new issue with detailed reproduction steps
+- Original project by [v-3](https://github.com/v-3/discordmcp)
+- Extended by [ChronoRixun](https://github.com/ChronoRixun)
