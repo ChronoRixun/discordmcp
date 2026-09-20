@@ -5,7 +5,7 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
-import { Client, GatewayIntentBits, TextChannel, ChannelType, PermissionFlagsBits } from 'discord.js';
+import { Client, GatewayIntentBits, TextChannel, ChannelType, PermissionFlagsBits, GuildMember } from 'discord.js';
 import { z } from 'zod';
 
 // Load environment variables
@@ -16,6 +16,7 @@ const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.GuildMembers,
     GatewayIntentBits.MessageContent,
   ],
 });
@@ -174,6 +175,121 @@ const DeleteMessageSchema = z.object({
   channel: z.string().describe('Channel name or ID'),
   messageId: z.string().describe('Message ID to delete'),
 });
+
+const EditMessageSchema = z.object({
+  server: z.string().optional().describe('Server name or ID'),
+  channel: z.string().describe('Channel name or ID'),
+  messageId: z.string().describe('Message ID to edit'),
+  message: z.string().describe('New message content'),
+});
+
+const EditEmbedSchema = z.object({
+  server: z.string().optional().describe('Server name or ID'),
+  channel: z.string().describe('Channel name or ID'),
+  messageId: z.string().describe('Message ID containing the embed to edit'),
+  title: z.string().optional(),
+  description: z.string().optional(),
+  color: z.string().optional(),
+  fields: z.array(z.object({ name: z.string(), value: z.string(), inline: z.boolean().optional() })).optional(),
+  footer: z.string().optional(),
+  thumbnail: z.string().optional(),
+  image: z.string().optional(),
+});
+
+const PinMessageSchema = z.object({
+  server: z.string().optional().describe('Server name or ID'),
+  channel: z.string().describe('Channel name or ID'),
+  messageId: z.string().describe('Message ID to pin'),
+});
+
+const UnpinMessageSchema = z.object({
+  server: z.string().optional().describe('Server name or ID'),
+  channel: z.string().describe('Channel name or ID'),
+  messageId: z.string().describe('Message ID to unpin'),
+});
+
+const CreateInviteSchema = z.object({
+  server: z.string().optional().describe('Server name or ID'),
+  channel: z.string().optional().describe('Channel for the invite (defaults to first text channel)'),
+  maxAge: z.number().optional().describe('Invite expiry in seconds (0 = never)'),
+  maxUses: z.number().optional().describe('Max uses (0 = unlimited)'),
+});
+
+const GetServerInfoSchema = z.object({
+  server: z.string().optional().describe('Server name or ID'),
+});
+
+const SetSlowmodeSchema = z.object({
+  server: z.string().optional().describe('Server name or ID'),
+  channel: z.string().describe('Channel name or ID'),
+  seconds: z.number().min(0).max(21600).describe('Slowmode delay in seconds (0 to disable, max 21600 = 6 hours)'),
+});
+
+const UnlockChannelSchema = z.object({
+  server: z.string().optional().describe('Server name or ID'),
+  channel: z.string().describe('Channel name or ID'),
+});
+
+const KickMemberSchema = z.object({
+  server: z.string().optional().describe('Server name or ID'),
+  user: z.string().describe('Username, display name, or user ID'),
+  reason: z.string().optional().describe('Reason for the kick'),
+});
+
+const BanMemberSchema = z.object({
+  server: z.string().optional().describe('Server name or ID'),
+  user: z.string().describe('Username, display name, or user ID'),
+  reason: z.string().optional().describe('Reason for the ban'),
+  deleteMessages: z.number().optional().describe('Days of messages to delete (0-7)'),
+});
+
+const UnbanUserSchema = z.object({
+  server: z.string().optional().describe('Server name or ID'),
+  userId: z.string().describe('User ID to unban'),
+});
+
+const AssignRoleSchema = z.object({
+  server: z.string().optional().describe('Server name or ID'),
+  user: z.string().describe('Username, display name, or user ID'),
+  role: z.string().describe('Role name or ID'),
+});
+
+const RemoveRoleSchema = z.object({
+  server: z.string().optional().describe('Server name or ID'),
+  user: z.string().describe('Username, display name, or user ID'),
+  role: z.string().describe('Role name or ID'),
+});
+
+const ListMembersSchema = z.object({
+  server: z.string().optional().describe('Server name or ID'),
+  limit: z.number().min(1).max(100).optional().describe('Max members to list'),
+});
+
+// Helper to find a member by name or ID
+async function findMember(guild: any, userIdentifier: string): Promise<GuildMember> {
+  try {
+    const member = await guild.members.fetch(userIdentifier);
+    if (member) return member;
+  } catch {}
+  await guild.members.fetch();
+  const found = guild.members.cache.find(
+    (m: GuildMember) =>
+      m.user.username.toLowerCase() === userIdentifier.toLowerCase() ||
+      m.displayName.toLowerCase() === userIdentifier.toLowerCase() ||
+      m.user.tag.toLowerCase() === userIdentifier.toLowerCase()
+  );
+  if (!found) throw new Error(`Member "${userIdentifier}" not found`);
+  return found;
+}
+
+// Helper to find a role by name or ID
+async function findRole(guild: any, roleIdentifier: string) {
+  const role = guild.roles.cache.find(
+    (r: any) => r.id === roleIdentifier || r.name.toLowerCase() === roleIdentifier.toLowerCase()
+  );
+  if (!role) throw new Error(`Role "${roleIdentifier}" not found`);
+  return role;
+}
 
 // Create server instance
 const server = new Server(
@@ -379,6 +495,76 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           required: ["channel", "messageId"],
         },
       },
+      {
+        name: "edit-message",
+        description: "Edit an existing message sent by the bot",
+        inputSchema: { type: "object", properties: { server: { type: "string" }, channel: { type: "string" }, messageId: { type: "string" }, message: { type: "string", description: "New content" } }, required: ["channel", "messageId", "message"] },
+      },
+      {
+        name: "edit-embed",
+        description: "Edit an existing embed message sent by the bot",
+        inputSchema: { type: "object", properties: { server: { type: "string" }, channel: { type: "string" }, messageId: { type: "string" }, title: { type: "string" }, description: { type: "string" }, color: { type: "string" }, fields: { type: "array", items: { type: "object", properties: { name: { type: "string" }, value: { type: "string" }, inline: { type: "boolean" } }, required: ["name", "value"] } }, footer: { type: "string" }, thumbnail: { type: "string" }, image: { type: "string" } }, required: ["channel", "messageId"] },
+      },
+      {
+        name: "pin-message",
+        description: "Pin a message in a channel",
+        inputSchema: { type: "object", properties: { server: { type: "string" }, channel: { type: "string" }, messageId: { type: "string" } }, required: ["channel", "messageId"] },
+      },
+      {
+        name: "unpin-message",
+        description: "Unpin a message in a channel",
+        inputSchema: { type: "object", properties: { server: { type: "string" }, channel: { type: "string" }, messageId: { type: "string" } }, required: ["channel", "messageId"] },
+      },
+      {
+        name: "create-invite",
+        description: "Create a server invite link",
+        inputSchema: { type: "object", properties: { server: { type: "string" }, channel: { type: "string", description: "Channel for the invite (defaults to first text channel)" }, maxAge: { type: "number", description: "Expiry in seconds (0 = never)" }, maxUses: { type: "number", description: "Max uses (0 = unlimited)" } } },
+      },
+      {
+        name: "get-server-info",
+        description: "Get server information: member count, boosts, creation date, roles",
+        inputSchema: { type: "object", properties: { server: { type: "string" } } },
+      },
+      {
+        name: "set-slowmode",
+        description: "Set slowmode delay on a channel (0 to disable)",
+        inputSchema: { type: "object", properties: { server: { type: "string" }, channel: { type: "string" }, seconds: { type: "number", description: "Delay in seconds (0-21600)" } }, required: ["channel", "seconds"] },
+      },
+      {
+        name: "unlock-channel",
+        description: "Unlock a previously locked channel so everyone can send messages",
+        inputSchema: { type: "object", properties: { server: { type: "string" }, channel: { type: "string" } }, required: ["channel"] },
+      },
+      {
+        name: "kick-member",
+        description: "Kick a member from the server",
+        inputSchema: { type: "object", properties: { server: { type: "string" }, user: { type: "string", description: "Username or ID" }, reason: { type: "string" } }, required: ["user"] },
+      },
+      {
+        name: "ban-member",
+        description: "Ban a member from the server",
+        inputSchema: { type: "object", properties: { server: { type: "string" }, user: { type: "string", description: "Username or ID" }, reason: { type: "string" }, deleteMessages: { type: "number", description: "Days of messages to delete (0-7)" } }, required: ["user"] },
+      },
+      {
+        name: "unban-user",
+        description: "Unban a user by ID",
+        inputSchema: { type: "object", properties: { server: { type: "string" }, userId: { type: "string" } }, required: ["userId"] },
+      },
+      {
+        name: "assign-role",
+        description: "Assign a role to a member",
+        inputSchema: { type: "object", properties: { server: { type: "string" }, user: { type: "string" }, role: { type: "string", description: "Role name or ID" } }, required: ["user", "role"] },
+      },
+      {
+        name: "remove-role",
+        description: "Remove a role from a member",
+        inputSchema: { type: "object", properties: { server: { type: "string" }, user: { type: "string" }, role: { type: "string", description: "Role name or ID" } }, required: ["user", "role"] },
+      },
+      {
+        name: "list-members",
+        description: "List server members with their roles",
+        inputSchema: { type: "object", properties: { server: { type: "string" }, limit: { type: "number", description: "Max members (default 50, max 100)" } } },
+      },
     ],
   };
 });
@@ -579,6 +765,154 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return {
           content: [{ type: "text", text: `Message ${messageId} deleted from #${channel.name}.` }],
         };
+      }
+
+      case "edit-message": {
+        const { server: srv, channel: chId, messageId, message: newContent } = EditMessageSchema.parse(args);
+        const channel = await findChannel(chId, srv);
+        const msg = await channel.messages.fetch(messageId);
+        await msg.edit(newContent);
+        return { content: [{ type: "text", text: `Message ${messageId} edited in #${channel.name}.` }] };
+      }
+
+      case "edit-embed": {
+        const { server: srv, channel: chId, messageId, title, description, color, fields, footer, thumbnail, image } = EditEmbedSchema.parse(args);
+        const channel = await findChannel(chId, srv);
+        const msg = await channel.messages.fetch(messageId);
+        const embed: any = {};
+        if (title) embed.title = title;
+        if (description) embed.description = description;
+        if (color) embed.color = parseInt(color.replace('#', ''), 16);
+        if (fields) embed.fields = fields;
+        if (footer) embed.footer = { text: footer };
+        if (thumbnail) embed.thumbnail = { url: thumbnail };
+        if (image) embed.image = { url: image };
+        await msg.edit({ embeds: [embed] });
+        return { content: [{ type: "text", text: `Embed ${messageId} edited in #${channel.name}.` }] };
+      }
+
+      case "pin-message": {
+        const { server: srv, channel: chId, messageId } = PinMessageSchema.parse(args);
+        const channel = await findChannel(chId, srv);
+        const msg = await channel.messages.fetch(messageId);
+        await msg.pin();
+        return { content: [{ type: "text", text: `Message ${messageId} pinned in #${channel.name}.` }] };
+      }
+
+      case "unpin-message": {
+        const { server: srv, channel: chId, messageId } = UnpinMessageSchema.parse(args);
+        const channel = await findChannel(chId, srv);
+        const msg = await channel.messages.fetch(messageId);
+        await msg.unpin();
+        return { content: [{ type: "text", text: `Message ${messageId} unpinned in #${channel.name}.` }] };
+      }
+
+      case "create-invite": {
+        const { server: srv, channel: chId, maxAge, maxUses } = CreateInviteSchema.parse(args);
+        const guild = await findGuild(srv);
+        let channel: TextChannel;
+        if (chId) {
+          channel = await findChannel(chId, srv);
+        } else {
+          const first = guild.channels.cache.find((c): c is TextChannel => c instanceof TextChannel);
+          if (!first) throw new Error("No text channel found for invite");
+          channel = first;
+        }
+        const invite = await channel.createInvite({
+          maxAge: maxAge ?? 0,
+          maxUses: maxUses ?? 0,
+        });
+        return { content: [{ type: "text", text: `Invite created: https://discord.gg/${invite.code} (expires: ${maxAge ? `${maxAge}s` : 'never'}, uses: ${maxUses || 'unlimited'})` }] };
+      }
+
+      case "get-server-info": {
+        const { server: srv } = GetServerInfoSchema.parse(args);
+        const guild = await findGuild(srv);
+        await guild.members.fetch();
+        const info = [
+          `**${guild.name}**`,
+          `ID: ${guild.id}`,
+          `Owner: <@${guild.ownerId}>`,
+          `Members: ${guild.memberCount}`,
+          `Boosts: ${guild.premiumSubscriptionCount || 0} (Level ${guild.premiumTier})`,
+          `Channels: ${guild.channels.cache.size}`,
+          `Roles: ${guild.roles.cache.size}`,
+          `Created: ${guild.createdAt.toISOString().split('T')[0]}`,
+        ];
+        return { content: [{ type: "text", text: info.join('\n') }] };
+      }
+
+      case "set-slowmode": {
+        const { server: srv, channel: chId, seconds } = SetSlowmodeSchema.parse(args);
+        const channel = await findChannel(chId, srv);
+        await channel.setRateLimitPerUser(seconds);
+        return { content: [{ type: "text", text: seconds > 0 ? `#${channel.name} slowmode set to ${seconds}s.` : `#${channel.name} slowmode disabled.` }] };
+      }
+
+      case "unlock-channel": {
+        const { server: srv, channel: chId } = UnlockChannelSchema.parse(args);
+        const channel = await findChannel(chId, srv);
+        const everyoneRole = channel.guild.roles.everyone;
+        await channel.permissionOverwrites.edit(everyoneRole, {
+          SendMessages: null,
+          AddReactions: null,
+        });
+        return { content: [{ type: "text", text: `#${channel.name} unlocked — everyone can post.` }] };
+      }
+
+      case "kick-member": {
+        const { server: srv, user, reason } = KickMemberSchema.parse(args);
+        const guild = await findGuild(srv);
+        const member = await findMember(guild, user);
+        await member.kick(reason);
+        return { content: [{ type: "text", text: `${member.user.tag} kicked from ${guild.name}.${reason ? ` Reason: ${reason}` : ''}` }] };
+      }
+
+      case "ban-member": {
+        const { server: srv, user, reason, deleteMessages } = BanMemberSchema.parse(args);
+        const guild = await findGuild(srv);
+        const member = await findMember(guild, user);
+        await member.ban({ reason: reason || undefined, deleteMessageSeconds: (deleteMessages || 0) * 86400 });
+        return { content: [{ type: "text", text: `${member.user.tag} banned from ${guild.name}.${reason ? ` Reason: ${reason}` : ''}` }] };
+      }
+
+      case "unban-user": {
+        const { server: srv, userId } = UnbanUserSchema.parse(args);
+        const guild = await findGuild(srv);
+        await guild.bans.remove(userId);
+        return { content: [{ type: "text", text: `User ${userId} unbanned from ${guild.name}.` }] };
+      }
+
+      case "assign-role": {
+        const { server: srv, user, role: roleId } = AssignRoleSchema.parse(args);
+        const guild = await findGuild(srv);
+        const member = await findMember(guild, user);
+        const role = await findRole(guild, roleId);
+        await member.roles.add(role);
+        return { content: [{ type: "text", text: `Role "${role.name}" assigned to ${member.user.tag}.` }] };
+      }
+
+      case "remove-role": {
+        const { server: srv, user, role: roleId } = RemoveRoleSchema.parse(args);
+        const guild = await findGuild(srv);
+        const member = await findMember(guild, user);
+        const role = await findRole(guild, roleId);
+        await member.roles.remove(role);
+        return { content: [{ type: "text", text: `Role "${role.name}" removed from ${member.user.tag}.` }] };
+      }
+
+      case "list-members": {
+        const { server: srv, limit } = ListMembersSchema.parse(args);
+        const guild = await findGuild(srv);
+        await guild.members.fetch({ limit: limit || 50 });
+        const members = guild.members.cache
+          .sort((a: GuildMember, b: GuildMember) => (a.joinedTimestamp || 0) - (b.joinedTimestamp || 0))
+          .first(limit || 50);
+        const lines = members?.map((m: GuildMember) => {
+          const roles = m.roles.cache.filter(r => r.name !== '@everyone').map(r => r.name).join(', ');
+          return `${m.user.tag} (${m.displayName})${roles ? ` [${roles}]` : ''}`;
+        }) || [];
+        return { content: [{ type: "text", text: `Members of ${guild.name} (${guild.memberCount} total):\n${lines.join('\n')}` }] };
       }
 
       default:

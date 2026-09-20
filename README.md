@@ -6,30 +6,49 @@ A fork of [v-3/discordmcp](https://github.com/v-3/discordmcp) with expanded capa
 
 | Tool | Description |
 |---|---|
+| **Messaging** | |
 | `send-message` | Send a plain text message to a channel |
 | `read-messages` | Read recent messages from a channel (up to 100) |
 | `send-embed` | Send a rich embed with title, description, color, fields, footer, images |
+| `edit-message` | Edit an existing message sent by the bot |
+| `edit-embed` | Edit an existing embed sent by the bot |
+| `delete-message` | Delete a specific message by ID |
+| `pin-message` | Pin a message in a channel |
+| `unpin-message` | Unpin a message |
+| `add-reaction` | Add an emoji reaction to a message |
+| **Channels** | |
 | `create-category` | Create a channel category |
 | `create-channel` | Create a text channel, optionally under a category, with a topic |
 | `list-channels` | List all channels organized by category |
 | `set-channel-topic` | Set or update a channel's topic/description |
 | `lock-channel` | Lock a channel so only admins can post (everyone else reads) |
+| `unlock-channel` | Unlock a previously locked channel |
+| `set-slowmode` | Set slowmode delay on a channel (0 to disable) |
 | `delete-channel` | Delete a channel |
-| `add-reaction` | Add an emoji reaction to a message |
+| **Server** | |
+| `get-server-info` | Server stats: member count, boosts, creation date, channels, roles |
+| `create-invite` | Create a shareable invite link with optional expiry and use limit |
+| `list-members` | List server members with their roles |
+| **Roles** | |
 | `create-role` | Create a role with a name and color |
 | `list-roles` | List all roles in the server |
-| `delete-message` | Delete a specific message by ID |
+| `assign-role` | Assign a role to a member |
+| `remove-role` | Remove a role from a member |
+| **Moderation** | |
+| `kick-member` | Kick a member from the server |
+| `ban-member` | Ban a member with optional message deletion |
+| `unban-user` | Unban a user by ID |
 
 ## Prerequisites
 
 - Node.js 16.x or higher
 - A Discord bot token
 - The bot must be invited to your server with these permissions:
-  - **General:** Manage Server, Manage Channels, Manage Roles, View Channels
+  - **General:** Manage Server, Manage Channels, Manage Roles, View Channels, Create Instant Invite, Kick Members, Ban Members
   - **Text:** Send Messages, Manage Messages, Embed Links, Attach Files, Read Message History, Add Reactions, Use External Emojis
 - **Privileged Gateway Intents** enabled in the Developer Portal:
   - Message Content Intent
-  - Server Members Intent
+  - Server Members Intent (required for list-members, kick, ban, role assignment)
 
 ## Setup
 
