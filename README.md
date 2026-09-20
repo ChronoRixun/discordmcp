@@ -1,6 +1,15 @@
 # Discord MCP Server (Extended)
 
-A fork of [v-3/discordmcp](https://github.com/v-3/discordmcp) with expanded capabilities for full Discord server management from Claude sessions. Beyond sending and reading messages, this fork can create channels, manage embeds, handle reactions, create roles, and moderate content.
+A fork of [v-3/discordmcp](https://github.com/v-3/discordmcp) with **27 tools** for Discord messaging and community management through Codex, Claude, and other MCP clients. Runs locally over stdio using your Discord bot.
+
+## Highlights
+
+- **Rich message reading:** inspect embeds, attachment metadata, reactions, message links, reply references, and available thread metadata alongside message text.
+- **Partial embed editing:** change one property while preserving omitted fields and other embeds; explicitly clear properties with `null`.
+- **Community management:** create text channels and categories, manage roles, pin messages, create invites, and moderate members.
+- **Tested behavior:** 15 offline regression tests cover rich reads, server selection, partial updates, validation, and failure handling.
+
+The latest changes improve `read-messages` and `edit-embed`; the tool count remains 27.
 
 ## Tools
 
@@ -11,7 +20,7 @@ A fork of [v-3/discordmcp](https://github.com/v-3/discordmcp) with expanded capa
 | `read-messages` | Read recent messages with IDs, embeds, attachments, reactions, and reply references (up to 100) |
 | `send-embed` | Send a rich embed with title, description, color, fields, footer, images |
 | `edit-message` | Edit an existing message sent by the bot |
-| `edit-embed` | Edit an existing embed sent by the bot |
+| `edit-embed` | Update a selected bot embed while preserving omitted fields and other embeds |
 | `delete-message` | Delete a specific message by ID |
 | `pin-message` | Pin a message in a channel |
 | `unpin-message` | Unpin a message |
@@ -21,8 +30,8 @@ A fork of [v-3/discordmcp](https://github.com/v-3/discordmcp) with expanded capa
 | `create-channel` | Create a text channel, optionally under a category, with a topic |
 | `list-channels` | List all channels organized by category |
 | `set-channel-topic` | Set or update a channel's topic/description |
-| `lock-channel` | Lock a channel so only admins can post (everyone else reads) |
-| `unlock-channel` | Unlock a previously locked channel |
+| `lock-channel` | Deny sending messages and adding reactions for `@everyone` in a channel |
+| `unlock-channel` | Clear the `@everyone` send/reaction overrides set by locking |
 | `set-slowmode` | Set slowmode delay on a channel (0 to disable) |
 | `delete-channel` | Delete a channel |
 | **Server** | |
@@ -47,6 +56,7 @@ array in the MCP text result, newest first, with the original `channel`, `server
 `author`, `content`, and `timestamp` fields preserved.
 
 Each message also includes:
+
 - `id`, `url`, `channelId`, `serverId`, `authorId`, and `authorBot`.
 - `editedTimestamp`, `type`, and `pinned`.
 - `embeds`: complete Discord embed JSON, including fields, footer and images.
@@ -84,12 +94,17 @@ Example: change only the title and remove the image:
 
 ## Testing
 
-Run `npm test` to compile and run offline reader regression tests. No bot token
-or Discord connection is needed. Tests use Node's built-in test runner (Node 18+).
+Run `npm test` to compile and run all 15 offline reader and embed-editing regression
+tests. No bot token or Discord connection is needed. Tests use Node's built-in test runner.
+
+```bash
+npm ci
+npm test
+```
 
 ## Prerequisites
 
-- Node.js 16.x or higher
+- Node.js 18 or higher (use a currently supported LTS release)
 - A Discord bot token
 - The bot must be invited to your server with these permissions:
   - **General:** Manage Server, Manage Channels, Manage Roles, View Channels, Create Instant Invite, Kick Members, Ban Members
@@ -108,13 +123,50 @@ cd discordmcp
 
 2. Install dependencies:
 ```bash
-npm install
+npm ci
 ```
 
 3. Build:
 ```bash
 npm run build
 ```
+
+## Codex Configuration
+
+In Codex's MCP server settings, add a stdio server named `discord`:
+
+- **Command:** `node`
+- **Arguments:** the absolute path to `build/index.js` in this checkout
+- **Environment:** `DISCORD_TOKEN` set to your bot token
+
+Equivalent `~/.codex/config.toml` entry on Windows:
+
+```toml
+[mcp_servers.discord]
+enabled = true
+command = "node"
+args = ['D:\discordmcp\build\index.js']
+
+[mcp_servers.discord.env]
+DISCORD_TOKEN = "your_bot_token_here"
+```
+
+Replace the example path with your actual installation. Save and restart the MCP
+connection after changing the configuration or rebuilding the server. Keep the real
+token in local configuration; do not paste it into chat or commit it to Git.
+
+## Updating an installation
+
+From a clean checkout tracking `main`:
+
+```bash
+git pull --ff-only
+npm ci
+npm test
+```
+
+`npm test` also rebuilds `build/index.js`. Restart the MCP connection to load the
+updated code. Updating GitHub alone does not change an already running MCP process.
 
 ## Claude Code Configuration
 
@@ -156,13 +208,19 @@ Add to your Claude Desktop config file:
 
 ## Multi-Server Support
 
-If the bot is in multiple servers, pass the `server` parameter (name or ID) to any tool. If the bot is in only one server, the parameter is optional.
+If the bot is in multiple servers, pass the `server` parameter (name or ID).
+If the bot is in only one server, the parameter is optional. `read-messages` and
+`edit-embed` both honor explicit server selection.
+
+Known limitation: `send-message` currently accepts but does not forward `server`
+to the channel resolver, so it requires the bot to be in exactly one server.
 
 ## Security
 
-- All tool operations require explicit user approval in Claude
+- Configure approvals in your MCP client. This server does not implement its own approval dialog.
 - The bot token is stored in local configuration, never transmitted through chat
-- Channel and server access follows Discord's permission model
+- Channel and server access follows Discord's permission model. Grant only the permissions needed for the tools you use.
+- `lock-channel` changes only the `@everyone` overwrite; other role/member allows can still permit posting. `unlock-channel` clears those two overrides rather than restoring a saved permissions snapshot.
 
 ## Credits
 
