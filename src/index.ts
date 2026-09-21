@@ -244,21 +244,31 @@ const ListMembersSchema = z.object({
   limit: z.number().min(1).max(100).optional().describe('Max members to list'),
 });
 
-// Helper to find a member by name or ID
+// Helper to find a member by ID, or by username / display name / tag (case-insensitive).
 async function findMember(guild: any, userIdentifier: string): Promise<GuildMember> {
+  if (/^\d{17,20}$/.test(userIdentifier)) {
+    try {
+      const member = await guild.members.fetch(userIdentifier);
+      if (member) return member;
+    } catch {}
+  }
+  const wanted = userIdentifier.toLowerCase().replace(/^@/, '');
+  const matches = (m: GuildMember) =>
+    m.user.username.toLowerCase() === wanted ||
+    m.displayName.toLowerCase() === wanted ||
+    m.user.tag.toLowerCase() === wanted ||
+    (m.user.globalName ?? '').toLowerCase() === wanted;
+  // REST search first (prefix match on username and nickname); it never waits on gateway chunks.
   try {
-    const member = await guild.members.fetch(userIdentifier);
-    if (member) return member;
+    const found = await guild.members.search({ query: wanted, limit: 25 });
+    const exact = found.find(matches);
+    if (exact) return exact;
   } catch {}
-  await guild.members.fetch();
-  const found = guild.members.cache.find(
-    (m: GuildMember) =>
-      m.user.username.toLowerCase() === userIdentifier.toLowerCase() ||
-      m.displayName.toLowerCase() === userIdentifier.toLowerCase() ||
-      m.user.tag.toLowerCase() === userIdentifier.toLowerCase()
-  );
-  if (!found) throw new Error(`Member "${userIdentifier}" not found`);
-  return found;
+  // Fall back to the cache, refreshed with a bounded gateway fetch.
+  try { await guild.members.fetch({ time: 10_000 }); } catch {}
+  const cached = guild.members.cache.find(matches);
+  if (!cached) throw new Error(`Member "${userIdentifier}" not found in ${guild.name}`);
+  return cached;
 }
 
 // Helper to find a role by name or ID
