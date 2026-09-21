@@ -1,6 +1,6 @@
 # Discord MCP Server (Extended)
 
-A fork of [v-3/discordmcp](https://github.com/v-3/discordmcp) with **30 tools** for Discord messaging and community management through Codex, Claude, and other MCP clients. Runs locally over stdio using your Discord bot.
+A fork of [v-3/discordmcp](https://github.com/v-3/discordmcp) with **42 tools** for Discord messaging and community management through Codex, Claude, and other MCP clients. Runs locally over stdio using your Discord bot.
 
 ## Highlights
 
@@ -9,6 +9,9 @@ A fork of [v-3/discordmcp](https://github.com/v-3/discordmcp) with **30 tools** 
 - **Channel inspection:** topic, category, slowmode, pins and the effective `@everyone` permissions, so a read-only info channel can be verified rather than assumed.
 - **Partial embed editing:** change one property while preserving omitted fields and other embeds; explicitly clear properties with `null`.
 - **Replies and captions:** plain messages and embeds can reply to a message, and an embed can carry text above it.
+- **Roles and channel access:** roles with colour, hoist, mentionable flag and permissions; per-role or per-member channel overwrites.
+- **AutoMod, events and timeouts:** native AutoMod rules (keywords, presets, spam, mention spam), scheduled events with interested counts, and Discord timeouts.
+- **Channel types:** text, voice, forum (with tags) and announcement channels.
 - **Community management:** create text channels and categories, manage roles, pin messages, create invites, and moderate members.
 - **Tested behavior:** 31 offline regression tests cover rich reads, paging and filters, single-message and pin lookups, channel inspection, sending, server selection, partial updates, validation, and failure handling.
 
@@ -30,9 +33,11 @@ A fork of [v-3/discordmcp](https://github.com/v-3/discordmcp) with **30 tools** 
 | `add-reaction` | Add an emoji reaction to a message |
 | **Channels** | |
 | `create-category` | Create a channel category |
-| `create-channel` | Create a text channel, optionally under a category, with a topic |
+| `create-channel` | Create a text, voice, forum (with tags) or announcement channel, optionally under a category |
 | `list-channels` | List all channels organized by category |
 | `get-channel-info` | Topic, category, slowmode, pin count, effective `@everyone` permissions and overwrites |
+| `set-channel-permissions` | Allow, deny or clear named permissions for one role or member in a channel |
+| `remove-channel-overwrite` | Remove a role's or member's overwrite so it inherits again |
 | `set-channel-topic` | Set or update a channel's topic/description |
 | `lock-channel` | Deny sending messages and adding reactions for `@everyone` in a channel |
 | `unlock-channel` | Clear the `@everyone` send/reaction overrides set by locking |
@@ -43,14 +48,26 @@ A fork of [v-3/discordmcp](https://github.com/v-3/discordmcp) with **30 tools** 
 | `create-invite` | Create a shareable invite link with optional expiry and use limit |
 | `list-members` | List server members with their roles |
 | **Roles** | |
-| `create-role` | Create a role with a name and color |
-| `list-roles` | List all roles in the server |
+| `create-role` | Create a role with colour, hoist, mentionable flag and permissions |
+| `edit-role` | Change name, colour (null clears), hoist, mentionable, permissions or position |
+| `delete-role` | Delete a role (never @everyone or integration roles) |
+| `list-roles` | Roles as JSON: colour, hoist, mentionable, position, member count, permission names |
 | `assign-role` | Assign a role to a member |
 | `remove-role` | Remove a role from a member |
 | **Moderation** | |
 | `kick-member` | Kick a member from the server |
 | `ban-member` | Ban a member with optional message deletion |
 | `unban-user` | Unban a user by ID |
+| `timeout-member` | Time a member out for up to 28 days |
+| `remove-timeout` | End a timeout early |
+| **AutoMod** | |
+| `create-automod-rule` | Keyword, keyword-preset, spam or mention-spam rule with block, alert and timeout actions |
+| `list-automod-rules` | Rules as JSON with triggers, actions and exemptions |
+| `delete-automod-rule` | Delete a rule by name or ID |
+| **Events** | |
+| `create-event` | Scheduled event in a voice/stage channel or at an external location |
+| `list-events` | Events as JSON with status, times and interested counts |
+| `delete-event` | Delete an event by name or ID |
 
 ## Reading messages
 
@@ -131,10 +148,47 @@ Example: change only the title and remove the image:
 {"channel":"welcome","messageId":"MESSAGE_ID","title":"Welcome aboard","image":null}
 ```
 
+## Roles and channel access
+
+`create-role` and `edit-role` take `permissions` as discord.js permission names
+(`SendMessages`, `ManageMessages`, `KickMembers`, ...); unknown names are rejected
+before anything is sent. `edit-role` replaces the whole permission set when
+`permissions` is given, clears the colour with `color: null`, and moves the role
+with `position` (higher is higher in the list). `@everyone` can only have its
+permissions changed. The bot can only manage roles below its own highest role.
+
+`set-channel-permissions` edits one overwrite in a channel of any type for either a
+`role` or a `member`: `allow` grants, `deny` denies, `clear` returns those permissions
+to inheriting from roles. A permission may appear in only one of the three lists.
+`remove-channel-overwrite` deletes the whole overwrite. `get-channel-info` shows the
+result.
+
+## AutoMod, events and timeouts
+
+`create-automod-rule` creates a native Discord AutoMod rule. `trigger` is one of
+`keyword` (needs `keywords` and/or `regexPatterns`), `keyword_preset` (needs `presets`
+from `profanity`, `sexual_content`, `slurs`), `spam`, or `mention_spam` (needs
+`mentionLimit`). Actions: `blockMessage` (default on, optional `customMessage`),
+`alertChannel`, and `timeoutMinutes` (keyword and mention_spam rules only; the bot
+needs Moderate Members). Discord limits a server to six keyword rules and one each
+of the other types. `exemptRoles` and `exemptChannels` take names or IDs.
+
+`create-event` needs `startTime` (ISO 8601 with offset) and either `channel` (a voice
+or stage channel) or `location` plus `endTime` for an event held elsewhere, such as
+a game server. `list-events` includes interested counts. Events are guild-only.
+
+`timeout-member` applies Discord's timeout for 1 to 40320 minutes (28 days); the
+member can read but not post, react or speak. It refuses members the bot cannot
+moderate instead of failing later.
+
+`create-channel` accepts `type` `text` (default), `voice`, `forum` (with optional
+`tags`) or `announcement`; announcement channels require a Community server.
+
 ## Testing
 
-Run `npm test` to compile and run all 31 offline regression tests (reading, paging
-and filters, single-message and pin lookups, channel info, sending, embed editing). No bot token or Discord connection is needed. Tests use Node's built-in test runner.
+Run `npm test` to compile and run all 55 offline regression tests (reading, paging
+and filters, single-message and pin lookups, channel info, sending, embed editing,
+roles, channel permissions, AutoMod, events and timeouts). No bot token or Discord connection is needed. Tests use Node's built-in test runner.
 
 ```bash
 npm ci
@@ -146,7 +200,7 @@ npm test
 - Node.js 18 or higher (use a currently supported LTS release)
 - A Discord bot token
 - The bot must be invited to your server with these permissions:
-  - **General:** Manage Server, Manage Channels, Manage Roles, View Channels, Create Instant Invite, Kick Members, Ban Members
+  - **General:** Manage Server, Manage Channels, Manage Roles, View Channels, Create Instant Invite, Kick Members, Ban Members, Moderate Members, Manage Events
   - **Text:** Send Messages, Manage Messages, Embed Links, Attach Files, Read Message History, Add Reactions, Use External Emojis
 - **Privileged Gateway Intents** enabled in the Developer Portal:
   - Message Content Intent

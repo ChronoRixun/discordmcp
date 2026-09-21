@@ -5,12 +5,18 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
-import { Client, GatewayIntentBits, TextChannel, ChannelType, PermissionFlagsBits, GuildMember } from 'discord.js';
+import { Client, GatewayIntentBits, TextChannel, ChannelType, PermissionFlagsBits, GuildMember, type GuildBasedChannel } from 'discord.js';
 import { z } from 'zod';
 import { readMessages, getMessage, listPins } from './read-messages.js';
 import { editEmbed } from './edit-embed.js';
 import { getChannelInfo } from './channel-info.js';
 import { sendMessage, sendEmbed } from './send.js';
+import { createRole, editRole, deleteRole, listRoles } from './roles.js';
+import { setChannelPermissions, removeChannelOverwrite } from './channel-permissions.js';
+import { createAutomodRule, listAutomodRules, deleteAutomodRule } from './automod.js';
+import { createEvent, listEvents, deleteEvent } from './events.js';
+import { timeoutMember, removeTimeout } from './moderation.js';
+import type { Resolvers } from './shared.js';
 
 // Load environment variables
 dotenv.config();
@@ -96,6 +102,24 @@ async function findChannel(channelIdentifier: string, guildIdentifier?: string):
   throw new Error(`Channel "${channelIdentifier}" is not a text channel or not found in server "${guild.name}"`);
 }
 
+// Any non-thread guild channel (text, voice, forum, announcement, stage, category) by ID or name.
+async function findGuildChannel(channelIdentifier: string, guildIdentifier?: string): Promise<GuildBasedChannel> {
+  const guild = await findGuild(guildIdentifier);
+  await guild.channels.fetch();
+  const wanted = channelIdentifier.toLowerCase().replace(/^#/, '');
+  const byId = guild.channels.cache.get(channelIdentifier);
+  if (byId && !byId.isThread()) return byId;
+  const matches = guild.channels.cache.filter(c => !c.isThread() && c.name.toLowerCase() === wanted);
+  if (matches.size === 0) {
+    const available = guild.channels.cache.filter(c => !c.isThread() && c.type !== ChannelType.GuildCategory).map(c => `"${c.name}"`).join(', ');
+    throw new Error(`Channel "${channelIdentifier}" not found in server "${guild.name}". Available channels: ${available}`);
+  }
+  if (matches.size > 1) {
+    throw new Error(`Multiple channels named "${channelIdentifier}" in server "${guild.name}": ${matches.map(c => `${c.name} (${c.id})`).join(', ')}. Please specify the channel ID.`);
+  }
+  return matches.first()!;
+}
+
 // Validation schemas
 const CreateCategorySchema = z.object({
   server: z.string().optional().describe('Server name or ID'),
@@ -104,9 +128,11 @@ const CreateCategorySchema = z.object({
 
 const CreateChannelSchema = z.object({
   server: z.string().optional().describe('Server name or ID'),
-  name: z.string().describe('Channel name'),
+  name: z.string().min(1).max(100).describe('Channel name'),
   category: z.string().optional().describe('Category name or ID to place the channel under'),
-  topic: z.string().optional().describe('Channel topic/description'),
+  topic: z.string().max(1024).optional().describe('Channel topic (text) or post guidelines (forum)'),
+  type: z.enum(['text', 'voice', 'forum', 'announcement']).default('text'),
+  tags: z.array(z.string().min(1).max(20)).max(20).optional().describe('Forum post tags'),
 });
 
 const ListChannelsSchema = z.object({
@@ -129,16 +155,6 @@ const AddReactionSchema = z.object({
   channel: z.string().describe('Channel name or ID'),
   messageId: z.string().describe('Message ID to react to'),
   emoji: z.string().describe('Emoji (unicode or custom format)'),
-});
-
-const CreateRoleSchema = z.object({
-  server: z.string().optional().describe('Server name or ID'),
-  name: z.string().describe('Role name'),
-  color: z.string().optional().describe('Hex color (e.g. "#E8A33D")'),
-});
-
-const ListRolesSchema = z.object({
-  server: z.string().optional().describe('Server name or ID'),
 });
 
 const DeleteChannelSchema = z.object({
@@ -254,6 +270,8 @@ async function findRole(guild: any, roleIdentifier: string) {
   return role;
 }
 
+const resolvers: Resolvers = { findGuild, findChannel, findGuildChannel, findMember };
+
 // Create server instance
 const server = new Server(
   {
@@ -316,14 +334,16 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: "create-channel",
-        description: "Create a text channel, optionally under a category",
+        description: "Create a text, voice, forum or announcement channel, optionally under a category (announcement channels need a Community server)",
         inputSchema: {
           type: "object",
           properties: {
             server: { type: "string", description: "Server name or ID" },
             name: { type: "string", description: "Channel name" },
             category: { type: "string", description: "Category name or ID to place the channel under" },
-            topic: { type: "string", description: "Channel topic/description" },
+            topic: { type: "string", description: "Channel topic, or post guidelines for a forum" },
+            type: { type: "string", enum: ["text", "voice", "forum", "announcement"], default: "text" },
+            tags: { type: "array", items: { type: "string" }, maxItems: 20, description: "Forum only: post tags to offer" },
           },
           required: ["name"],
         },
@@ -403,26 +423,47 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: "create-role",
-        description: "Create a role in the Discord server",
+        description: "Create a role with optional colour, hoist (shown separately in the member list), mentionable flag and permissions",
         inputSchema: {
           type: "object",
           properties: {
             server: { type: "string", description: "Server name or ID" },
-            name: { type: "string", description: "Role name" },
-            color: { type: "string", description: "Hex color (e.g. #E8A33D)" },
+            name: { type: "string", minLength: 1, maxLength: 100 },
+            color: { type: "string", pattern: "^#?[0-9a-fA-F]{6}$", description: "Hex colour (e.g. #E8A33D)" },
+            hoist: { type: "boolean", description: "Show members with this role in their own group in the member list" },
+            mentionable: { type: "boolean", description: "Let anyone @mention the role" },
+            permissions: { type: "array", items: { type: "string" }, description: "Permission names, e.g. [\"ManageMessages\", \"KickMembers\"]" },
+            reason: { type: "string", description: "Audit log reason" },
           },
           required: ["name"],
         },
       },
       {
-        name: "list-roles",
-        description: "List all roles in the Discord server",
+        name: "edit-role",
+        description: "Change a role's name, colour (null clears), hoist, mentionable flag, permissions (replaces the set) or position",
         inputSchema: {
           type: "object",
           properties: {
-            server: { type: "string", description: "Server name or ID" },
+            server: { type: "string" }, role: { type: "string", description: "Role name or ID" },
+            name: { type: "string", minLength: 1, maxLength: 100 },
+            color: { type: ["string", "null"], pattern: "^#?[0-9a-fA-F]{6}$" },
+            hoist: { type: "boolean" }, mentionable: { type: "boolean" },
+            permissions: { type: "array", items: { type: "string" } },
+            position: { type: "integer", minimum: 1, description: "Higher numbers sit higher in the role list" },
+            reason: { type: "string" },
           },
+          required: ["role"],
         },
+      },
+      {
+        name: "delete-role",
+        description: "Delete a role (not @everyone or integration-managed roles)",
+        inputSchema: { type: "object", properties: { server: { type: "string" }, role: { type: "string", description: "Role name or ID" }, reason: { type: "string" } }, required: ["role"] },
+      },
+      {
+        name: "list-roles",
+        description: "List roles (highest first) as JSON with id, colour, hoist, mentionable, position, member count and permission names",
+        inputSchema: { type: "object", properties: { server: { type: "string", description: "Server name or ID" } } },
       },
       {
         name: "delete-channel",
@@ -558,6 +599,101 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         description: "Channel settings: topic, category, slowmode, pin count, effective @everyone permissions and permission overwrites",
         inputSchema: { type: "object", properties: { server: { type: "string" }, channel: { type: "string" } }, required: ["channel"] },
       },
+      {
+        name: "set-channel-permissions",
+        description: "Set a channel permission overwrite for one role or member: allow, deny, or clear (inherit) named permissions",
+        inputSchema: {
+          type: "object",
+          properties: {
+            server: { type: "string" }, channel: { type: "string", description: "Channel name or ID (any type)" },
+            role: { type: "string", description: "Role name or ID (use this or member)" },
+            member: { type: "string", description: "Username, display name or user ID (use this or role)" },
+            allow: { type: "array", items: { type: "string" }, description: "Permission names to grant, e.g. ViewChannel, SendMessages" },
+            deny: { type: "array", items: { type: "string" } },
+            clear: { type: "array", items: { type: "string" }, description: "Permission names to reset to inherit" },
+            reason: { type: "string" },
+          },
+          required: ["channel"],
+        },
+      },
+      {
+        name: "remove-channel-overwrite",
+        description: "Remove a role's or member's permission overwrite from a channel so it inherits from roles again",
+        inputSchema: { type: "object", properties: { server: { type: "string" }, channel: { type: "string" }, role: { type: "string" }, member: { type: "string" }, reason: { type: "string" } }, required: ["channel"] },
+      },
+      {
+        name: "create-automod-rule",
+        description: "Create a Discord AutoMod rule: keyword (words/regex), keyword_preset (profanity, sexual_content, slurs), spam, or mention_spam; actions block the message, alert a channel and/or time the member out",
+        inputSchema: {
+          type: "object",
+          properties: {
+            server: { type: "string" }, name: { type: "string", minLength: 1, maxLength: 100 },
+            trigger: { type: "string", enum: ["keyword", "keyword_preset", "spam", "mention_spam"] },
+            keywords: { type: "array", items: { type: "string" }, description: "keyword: words or phrases; * wildcards allowed" },
+            regexPatterns: { type: "array", items: { type: "string" }, maxItems: 10, description: "keyword: Rust-flavoured regexes" },
+            allowList: { type: "array", items: { type: "string" }, description: "Words that never trigger the rule" },
+            presets: { type: "array", items: { type: "string", enum: ["profanity", "sexual_content", "slurs"] } },
+            mentionLimit: { type: "integer", minimum: 1, maximum: 50, description: "mention_spam: max unique mentions per message" },
+            blockMessage: { type: "boolean", default: true },
+            customMessage: { type: "string", maxLength: 150, description: "Shown to the member when their message is blocked" },
+            alertChannel: { type: "string", description: "Text channel that receives an alert" },
+            timeoutMinutes: { type: "integer", minimum: 1, maximum: 40320, description: "keyword and mention_spam only" },
+            exemptRoles: { type: "array", items: { type: "string" } },
+            exemptChannels: { type: "array", items: { type: "string" } },
+            enabled: { type: "boolean", default: true },
+            reason: { type: "string" },
+          },
+          required: ["name", "trigger"],
+        },
+      },
+      {
+        name: "list-automod-rules",
+        description: "List AutoMod rules as JSON with triggers, keywords, presets, actions and exemptions",
+        inputSchema: { type: "object", properties: { server: { type: "string" } } },
+      },
+      {
+        name: "delete-automod-rule",
+        description: "Delete an AutoMod rule by name or ID",
+        inputSchema: { type: "object", properties: { server: { type: "string" }, rule: { type: "string" }, reason: { type: "string" } }, required: ["rule"] },
+      },
+      {
+        name: "create-event",
+        description: "Create a scheduled event, either in a voice/stage channel or at an external location (which needs an endTime)",
+        inputSchema: {
+          type: "object",
+          properties: {
+            server: { type: "string" }, name: { type: "string", minLength: 1, maxLength: 100 },
+            description: { type: "string", maxLength: 1000 },
+            startTime: { type: "string", description: "ISO 8601 with offset, e.g. 2026-09-26T20:00:00-05:00" },
+            endTime: { type: "string", description: "ISO 8601; required for external events" },
+            location: { type: "string", description: "Free text such as the server name (external event)" },
+            channel: { type: "string", description: "Voice or stage channel name or ID" },
+            image: { type: "string", format: "uri", description: "Cover image URL" },
+            reason: { type: "string" },
+          },
+          required: ["name", "startTime"],
+        },
+      },
+      {
+        name: "list-events",
+        description: "List scheduled events as JSON with status, times, location or channel, and interested counts",
+        inputSchema: { type: "object", properties: { server: { type: "string" } } },
+      },
+      {
+        name: "delete-event",
+        description: "Delete a scheduled event by name or ID",
+        inputSchema: { type: "object", properties: { server: { type: "string" }, event: { type: "string" } }, required: ["event"] },
+      },
+      {
+        name: "timeout-member",
+        description: "Time a member out (Discord mute) for a number of minutes, up to 28 days",
+        inputSchema: { type: "object", properties: { server: { type: "string" }, user: { type: "string", description: "Username, display name or user ID" }, minutes: { type: "integer", minimum: 1, maximum: 40320 }, reason: { type: "string" } }, required: ["user", "minutes"] },
+      },
+      {
+        name: "remove-timeout",
+        description: "End a member's timeout early",
+        inputSchema: { type: "object", properties: { server: { type: "string" }, user: { type: "string" }, reason: { type: "string" } }, required: ["user"] },
+      },
     ],
   };
 });
@@ -601,24 +737,32 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case "create-channel": {
-        const { server: srv, name: chName, category: catId, topic } = CreateChannelSchema.parse(args);
+        const { server: srv, name: chName, category: catId, topic, type, tags } = CreateChannelSchema.parse(args);
         const guild = await findGuild(srv);
-        let parent = undefined;
+        let parent: string | undefined;
+        let parentName = '';
         if (catId) {
           const found = guild.channels.cache.find(
             c => c.type === ChannelType.GuildCategory &&
               (c.id === catId || c.name.toLowerCase() === catId.toLowerCase())
           );
-          if (found) parent = found.id;
+          if (!found) throw new Error(`Category "${catId}" not found in ${guild.name}`);
+          parent = found.id;
+          parentName = found.name;
         }
+        const channelType = {
+          text: ChannelType.GuildText, voice: ChannelType.GuildVoice,
+          forum: ChannelType.GuildForum, announcement: ChannelType.GuildAnnouncement,
+        }[type];
         const channel = await guild.channels.create({
           name: chName,
-          type: ChannelType.GuildText,
+          type: channelType,
           parent,
           topic: topic || undefined,
-        });
+          ...(type === 'forum' && tags ? { availableTags: tags.map(tagName => ({ name: tagName })) } : {}),
+        } as any);
         return {
-          content: [{ type: "text", text: `Channel #${channel.name} created in ${guild.name}${parent ? ` under category` : ''}. ID: ${channel.id}` }],
+          content: [{ type: "text", text: `${type} channel "${channel.name}" created in ${guild.name}${parent ? ` under ${parentName}` : ''}. ID: ${channel.id}` }],
         };
       }
 
@@ -626,6 +770,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const { server: srv } = ListChannelsSchema.parse(args);
         const guild = await findGuild(srv);
         await guild.channels.fetch();
+        const listable = new Set([ChannelType.GuildText, ChannelType.GuildVoice, ChannelType.GuildStageVoice, ChannelType.GuildForum, ChannelType.GuildAnnouncement]);
+        const label = (c: { type: ChannelType; name: string }) =>
+          c.type === ChannelType.GuildVoice || c.type === ChannelType.GuildStageVoice ? `\u{1F50A} ${c.name} (voice)`
+          : c.type === ChannelType.GuildForum ? `\u{1F4CB} ${c.name} (forum)`
+          : c.type === ChannelType.GuildAnnouncement ? `\u{1F4E2} ${c.name} (announcements)`
+          : `#${c.name}`;
         const categories = guild.channels.cache
           .filter(c => c.type === ChannelType.GuildCategory)
           .sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
@@ -633,19 +783,19 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         for (const [, cat] of categories) {
           lines.push(`\n📁 ${cat.name.toUpperCase()}`);
           const children = guild.channels.cache
-            .filter(c => c.parentId === cat.id && c.type === ChannelType.GuildText)
+            .filter(c => c.parentId === cat.id && listable.has(c.type))
             .sort((a, b) => ('position' in a ? a.position : 0) - ('position' in b ? b.position : 0));
           for (const [, ch] of children) {
-            lines.push(`  #${ch.name}`);
+            lines.push(`  ${label(ch)}`);
           }
         }
         const orphans = guild.channels.cache
-          .filter(c => !c.parentId && c.type === ChannelType.GuildText)
+          .filter(c => !c.parentId && listable.has(c.type))
           .sort((a, b) => ('position' in a ? a.position : 0) - ('position' in b ? b.position : 0));
         if (orphans.size > 0) {
           lines.push(`\n📁 (no category)`);
           for (const [, ch] of orphans) {
-            lines.push(`  #${ch.name}`);
+            lines.push(`  ${label(ch)}`);
           }
         }
         return {
@@ -690,32 +840,24 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case "create-role": {
-        const { server: srv, name: roleName, color: roleColor } = CreateRoleSchema.parse(args);
-        const guild = await findGuild(srv);
-        const role = await guild.roles.create({
-          name: roleName,
-          color: roleColor ? (parseInt(roleColor.replace('#', ''), 16)) : undefined,
-        });
-        return {
-          content: [{ type: "text", text: `Role "${role.name}" created in ${guild.name}. ID: ${role.id}` }],
-        };
+        return await createRole(args, resolvers);
+      }
+
+      case "edit-role": {
+        return await editRole(args, resolvers);
+      }
+
+      case "delete-role": {
+        return await deleteRole(args, resolvers);
       }
 
       case "list-roles": {
-        const { server: srv } = ListRolesSchema.parse(args);
-        const guild = await findGuild(srv);
-        const roles = guild.roles.cache
-          .filter(r => r.name !== '@everyone')
-          .sort((a, b) => b.position - a.position)
-          .map(r => `${r.name} (${r.hexColor}, ${r.members.size} members)`);
-        return {
-          content: [{ type: "text", text: `Roles in ${guild.name}:\n${roles.join('\n')}` }],
-        };
+        return await listRoles(args, resolvers);
       }
 
       case "delete-channel": {
         const { server: srv, channel: chId } = DeleteChannelSchema.parse(args);
-        const channel = await findChannel(chId, srv);
+        const channel = await findGuildChannel(chId, srv);
         const name = channel.name;
         await channel.delete();
         return {
@@ -792,6 +934,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           `Channels: ${guild.channels.cache.size}`,
           `Roles: ${guild.roles.cache.size}`,
           `Created: ${guild.createdAt.toISOString().split('T')[0]}`,
+          `Verification level: ${guild.verificationLevel}`,
+          `Features: ${guild.features.length ? guild.features.join(', ') : 'none'}`,
         ];
         return { content: [{ type: "text", text: info.join('\n') }] };
       }
@@ -867,6 +1011,46 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           return `${m.user.tag} (${m.displayName})${roles ? ` [${roles}]` : ''}`;
         }) || [];
         return { content: [{ type: "text", text: `Members of ${guild.name} (${guild.memberCount} total):\n${lines.join('\n')}` }] };
+      }
+
+      case "set-channel-permissions": {
+        return await setChannelPermissions(args, resolvers);
+      }
+
+      case "remove-channel-overwrite": {
+        return await removeChannelOverwrite(args, resolvers);
+      }
+
+      case "create-automod-rule": {
+        return await createAutomodRule(args, resolvers);
+      }
+
+      case "list-automod-rules": {
+        return await listAutomodRules(args, resolvers);
+      }
+
+      case "delete-automod-rule": {
+        return await deleteAutomodRule(args, resolvers);
+      }
+
+      case "create-event": {
+        return await createEvent(args, resolvers);
+      }
+
+      case "list-events": {
+        return await listEvents(args, resolvers);
+      }
+
+      case "delete-event": {
+        return await deleteEvent(args, resolvers);
+      }
+
+      case "timeout-member": {
+        return await timeoutMember(args, resolvers);
+      }
+
+      case "remove-timeout": {
+        return await removeTimeout(args, resolvers);
       }
 
       default:
