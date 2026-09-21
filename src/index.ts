@@ -17,6 +17,7 @@ import { createAutomodRule, listAutomodRules, deleteAutomodRule } from './automo
 import { createEvent, listEvents, deleteEvent } from './events.js';
 import { editAutomodRule, editEvent, lifecycleTools } from './lifecycle.js';
 import { timeoutMember, removeTimeout } from './moderation.js';
+import { getOnboarding, setOnboarding, getWelcomeScreen, setWelcomeScreen, editChannel } from './community.js';
 import { findMember } from './member-lookup.js';
 import { findRole, type Resolvers } from './shared.js';
 
@@ -672,6 +673,67 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         description: "End a member's timeout early",
         inputSchema: { type: "object", properties: { server: { type: "string" }, user: { type: "string" }, reason: { type: "string" } }, required: ["user"] },
       },
+      {
+        name: "get-onboarding",
+        description: "Read the Community onboarding setup: prompts, their options with roles and channels, default channels, mode and whether it is enabled",
+        inputSchema: { type: "object", properties: { server: { type: "string" } } },
+      },
+      {
+        name: "set-onboarding",
+        description: "Configure Community onboarding. prompts replaces the whole prompt list (each option grants roles and/or channels by name); defaultChannels, enabled and mode are optional. Requires the COMMUNITY feature.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            server: { type: "string" },
+            prompts: { type: "array", maxItems: 15, items: { type: "object", properties: {
+              title: { type: "string", maxLength: 100 },
+              type: { type: "string", enum: ["multiple_choice", "dropdown"], default: "multiple_choice" },
+              singleSelect: { type: "boolean", default: false },
+              required: { type: "boolean", default: false },
+              inOnboarding: { type: "boolean", default: true, description: "Ask during onboarding, not only on the Channels & Roles page" },
+              options: { type: "array", minItems: 1, maxItems: 50, items: { type: "object", properties: {
+                title: { type: "string", maxLength: 50 }, description: { type: "string", maxLength: 100 }, emoji: { type: "string" },
+                roles: { type: "array", items: { type: "string" } }, channels: { type: "array", items: { type: "string" } },
+              }, required: ["title"] } },
+            }, required: ["title", "options"] } },
+            defaultChannels: { type: "array", items: { type: "string" }, description: "Channels every new member sees (Discord wants at least 7 @everyone-visible)" },
+            enabled: { type: "boolean" },
+            mode: { type: "string", enum: ["default", "advanced"] },
+            reason: { type: "string" },
+          },
+        },
+      },
+      {
+        name: "get-welcome-screen",
+        description: "Read the Community welcome screen: enabled, description and featured channels",
+        inputSchema: { type: "object", properties: { server: { type: "string" } } },
+      },
+      {
+        name: "set-welcome-screen",
+        description: "Set the Community welcome screen: enabled, description (max 140) and up to five featured channels with a short description and optional emoji",
+        inputSchema: {
+          type: "object",
+          properties: {
+            server: { type: "string" }, enabled: { type: "boolean" }, description: { type: "string", maxLength: 140 },
+            channels: { type: "array", maxItems: 5, items: { type: "object", properties: {
+              channel: { type: "string" }, description: { type: "string", maxLength: 50 }, emoji: { type: "string" },
+            }, required: ["channel", "description"] } },
+          },
+        },
+      },
+      {
+        name: "edit-channel",
+        description: "Rename a channel, set or clear (null) its topic, move it under a category (null for none), set slowmode or NSFW",
+        inputSchema: {
+          type: "object",
+          properties: {
+            server: { type: "string" }, channel: { type: "string" }, name: { type: "string" },
+            topic: { type: ["string", "null"] }, category: { type: ["string", "null"], description: "Category name or ID; null moves it out" },
+            slowmodeSeconds: { type: "integer", minimum: 0, maximum: 21600 }, nsfw: { type: "boolean" }, reason: { type: "string" },
+          },
+          required: ["channel"],
+        },
+      },
     ],
   };
 });
@@ -1032,6 +1094,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case "remove-timeout": {
         return await removeTimeout(args, resolvers);
       }
+
+      case "get-onboarding": return await getOnboarding(args, resolvers);
+      case "set-onboarding": return await setOnboarding(args, resolvers);
+      case "get-welcome-screen": return await getWelcomeScreen(args, resolvers);
+      case "set-welcome-screen": return await setWelcomeScreen(args, resolvers);
+      case "edit-channel": return await editChannel(args, resolvers);
 
       default:
         throw new Error(`Unknown tool: ${name}`);

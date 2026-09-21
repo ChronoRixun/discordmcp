@@ -25,7 +25,7 @@ test('every advertised tool is unique and has a dispatch case, including new lif
     ts.forEachChild(node, visit);
   }
   visit(file);
-  assert.equal(advertised.length, 44);
+  assert.equal(advertised.length, 49);
   assert.equal(new Set(advertised).size, advertised.length);
   assert.deepEqual([...advertised].sort(), [...handled].sort());
 });

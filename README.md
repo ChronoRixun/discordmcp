@@ -1,6 +1,6 @@
 # Discord MCP Server (Extended)
 
-A fork of [v-3/discordmcp](https://github.com/v-3/discordmcp) with **44 tools** for Discord messaging and community management through Codex, Claude, and other MCP clients. Runs locally over stdio using your Discord bot.
+A fork of [v-3/discordmcp](https://github.com/v-3/discordmcp) with **49 tools** for Discord messaging and community management through Codex, Claude, and other MCP clients. Runs locally over stdio using your Discord bot.
 
 ## Highlights
 
@@ -11,10 +11,11 @@ A fork of [v-3/discordmcp](https://github.com/v-3/discordmcp) with **44 tools** 
 - **Replies and captions:** plain messages and embeds can reply to a message, and an embed can carry text above it.
 - **Roles and channel access:** roles with colour, hoist, mentionable flag and permissions; per-role or per-member channel overwrites.
 - **AutoMod, events and timeouts:** native AutoMod rules (keywords, presets, spam, mention spam), scheduled events with interested counts, and Discord timeouts.
-- **Channel types:** text, voice, forum (with tags) and announcement channels.
+- **Channel types:** text, voice, forum (with tags) and announcement channels, and `edit-channel` to rename, retopic or move any of them.
+- **Community onboarding:** read and configure the native onboarding prompts (roles and channels per option, default channels, mode) and the welcome screen on a Community server.
 - **Community management:** categories, pins, invites, member listing, kick and ban.
 - **Validated before sending:** permission names, colours, IDs, dates and rule shapes are checked locally, so a bad request fails with a clear message instead of a Discord error.
-- **Tested behavior:** 71 offline regression tests cover every module: reads, paging and filters, lookups, channel inspection, sending, embed editing, roles, channel permissions, AutoMod, events and timeouts.
+- **Tested behavior:** 76 offline regression tests cover every module: reads, paging and filters, lookups, channel inspection, sending, embed editing, roles, channel permissions, AutoMod, events and timeouts.
 
 ## Tools
 
@@ -40,6 +41,7 @@ A fork of [v-3/discordmcp](https://github.com/v-3/discordmcp) with **44 tools** 
 | `set-channel-permissions` | Allow, deny or clear named permissions for one role or member in a channel |
 | `remove-channel-overwrite` | Remove a role's or member's overwrite so it inherits again |
 | `set-channel-topic` | Set or update a channel's topic/description |
+| `edit-channel` | Rename, set or clear the topic, move under a category (or out), slowmode, NSFW |
 | `lock-channel` | Deny sending messages and adding reactions for `@everyone` in a channel |
 | `unlock-channel` | Clear the `@everyone` send/reaction overrides set by locking |
 | `set-slowmode` | Set slowmode delay on a channel (0 to disable) |
@@ -48,6 +50,11 @@ A fork of [v-3/discordmcp](https://github.com/v-3/discordmcp) with **44 tools** 
 | `get-server-info` | Member count, boosts, creation date, channels, roles, verification level and enabled features |
 | `create-invite` | Create a shareable invite link with optional expiry and use limit |
 | `list-members` | List server members with their roles |
+| **Community** | |
+| `get-onboarding` | Onboarding prompts, options with their roles and channels, default channels, mode, enabled |
+| `set-onboarding` | Replace the prompt list and/or set default channels, mode and enabled (names resolve to roles and channels) |
+| `get-welcome-screen` | The welcome screen: enabled, description, featured channels |
+| `set-welcome-screen` | Set the welcome screen description and up to five featured channels |
 | **Roles** | |
 | `create-role` | Create a role with colour, hoist, mentionable flag and permissions |
 | `edit-role` | Change name, colour (null clears), hoist, mentionable, permissions or position |
@@ -169,6 +176,23 @@ Example: change only the title and remove the image:
 Some MCP clients cannot send a JSON `null` and deliver the string `"null"` instead;
 `edit-embed` and `edit-role` treat that string as an explicit clear.
 
+## Community onboarding
+
+`set-onboarding` configures Discord's native onboarding on a server with the
+COMMUNITY feature. `prompts` replaces the whole prompt list (Discord has no
+per-prompt patch), each prompt being a title, `type` (`multiple_choice` or
+`dropdown`), `singleSelect`, `required`, `inOnboarding`, and `options` that each
+grant `roles` and/or `channels` by name. `defaultChannels`, `enabled` and `mode`
+(`default` or `advanced`) are independent. Discord enforces its own rules on the
+result, for example enough default channels visible to everyone before onboarding
+can be enabled; those errors come back verbatim. `get-onboarding` returns the
+current setup with names instead of IDs, so it can be read, adjusted and sent
+back. `set-welcome-screen` takes a description (max 140) and up to five featured
+channels with a short description (max 50) and optional emoji.
+
+`edit-channel` changes a channel's name, topic (`null` clears), category (`null`
+moves it out), slowmode or NSFW flag in one call and works on any channel type.
+
 ## Roles and channel access
 
 `create-role` and `edit-role` take `permissions` as discord.js permission names
@@ -226,9 +250,10 @@ moderate instead of failing later.
 
 ## Testing
 
-Run `npm test` to compile and run all 71 offline regression tests (reading, paging
+Run `npm test` to compile and run all 76 offline regression tests (reading, paging
 and filters, single-message and pin lookups, channel info, sending, embed editing,
-roles, channel permissions, AutoMod, events and timeouts). No bot token or Discord connection is needed. Tests use Node's built-in test runner.
+roles, channel permissions, AutoMod, events, timeouts, onboarding, welcome screen and
+channel edits). No bot token or Discord connection is needed. Tests use Node's built-in test runner.
 
 ```bash
 npm ci
@@ -380,6 +405,7 @@ lists the servers it can see.
 - 30 tools: `get-message`, `list-pins`, `get-channel-info`; paging and filters on reads; replies and captions on sends; `server` honoured everywhere.
 - 42 tools: role management, channel overwrites, AutoMod, scheduled events, timeouts, voice/forum/announcement channels; live-tested against a real server.
 - 44 tools: in-place AutoMod and event updates, ambiguity checks for administration targets, filtered-page cursors, explicit unknown role counts, and timezone validation; 71 offline tests.
+- 49 tools: Community onboarding and welcome screen, and `edit-channel`; 76 offline tests.
 - Robustness: the string `"null"` accepted as a clear, member lookup through REST search, bounded member fetches.
 
 ## Credits
@@ -393,8 +419,8 @@ The MCP is an administration interface, not yet an always-on community bot.
 Reaction roles, button role pickers, welcome listeners and persistent interaction
 handlers are not implemented. They need a resident process, durable role-panel
 configuration, hierarchy/permission checks, and restart recovery before deployment.
-Community onboarding and welcome-screen tools also remain separate work; installing
-this MCP does not enable Community or change server discoverability.
+Installing this MCP does not enable Community or change server discoverability;
+the onboarding and welcome-screen tools only work once Community is on.
 
 The latest two update tools are covered offline; their Discord mutations have not
 been live-tested. Restart the configured MCP process to load rebuilt tools. Existing
