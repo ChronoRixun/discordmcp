@@ -1,6 +1,6 @@
 # Discord MCP Server (Extended)
 
-A fork of [v-3/discordmcp](https://github.com/v-3/discordmcp) with **49 tools** for Discord messaging and community management through Codex, Claude, and other MCP clients. Runs locally over stdio using your Discord bot.
+A fork of [v-3/discordmcp](https://github.com/v-3/discordmcp) with **51 tools** for Discord messaging and community management through Codex, Claude, and other MCP clients. Runs locally over stdio using your Discord bot.
 
 ## Highlights
 
@@ -15,7 +15,7 @@ A fork of [v-3/discordmcp](https://github.com/v-3/discordmcp) with **49 tools** 
 - **Community onboarding:** read and configure the native onboarding prompts (roles and channels per option, default channels, mode) and the welcome screen on a Community server.
 - **Community management:** categories, pins, invites, member listing, kick and ban.
 - **Validated before sending:** permission names, colours, IDs, dates and rule shapes are checked locally, so a bad request fails with a clear message instead of a Discord error.
-- **Tested behavior:** 76 offline regression tests cover every module: reads, paging and filters, lookups, channel inspection, sending, embed editing, roles, channel permissions, AutoMod, events and timeouts.
+- **Tested behavior:** 80 offline regression tests cover every module: reads, paging and filters, lookups, channel inspection, sending, embed editing, roles, channel permissions, AutoMod, events and timeouts.
 
 ## Tools
 
@@ -55,6 +55,8 @@ A fork of [v-3/discordmcp](https://github.com/v-3/discordmcp) with **49 tools** 
 | `set-onboarding` | Replace the prompt list and/or set default channels, mode and enabled (names resolve to roles and channels) |
 | `get-welcome-screen` | The welcome screen: enabled, description, featured channels |
 | `set-welcome-screen` | Set the welcome screen description and up to five featured channels |
+| `get-rules-screening` | Whether Rules Screening is set up, its description and the rules members must accept |
+| `set-rules-screening` | Set the rules (max 16), description and enabled flag of Rules Screening |
 | **Roles** | |
 | `create-role` | Create a role with colour, hoist, mentionable flag and permissions |
 | `edit-role` | Change name, colour (null clears), hoist, mentionable, permissions or position |
@@ -193,6 +195,12 @@ channels with a short description (max 50) and optional emoji.
 `edit-channel` changes a channel's name, topic (`null` clears), category (`null`
 moves it out), slowmode or NSFW flag in one call and works on any channel type.
 
+`set-rules-screening` configures Rules Screening, the rules a new member must accept
+before they can talk, react or DM. discord.js has no wrapper for it, so the tool calls
+`/guilds/{id}/member-verification` directly; `rules` replaces the whole list (max 16),
+`enabled` switches the gate, `description` is the text above the rules. `get-rules-screening`
+reports a server where it was never set up instead of failing.
+
 ## Roles and channel access
 
 `create-role` and `edit-role` take `permissions` as discord.js permission names
@@ -250,7 +258,7 @@ moderate instead of failing later.
 
 ## Testing
 
-Run `npm test` to compile and run all 76 offline regression tests (reading, paging
+Run `npm test` to compile and run all 80 offline regression tests (reading, paging
 and filters, single-message and pin lookups, channel info, sending, embed editing,
 roles, channel permissions, AutoMod, events, timeouts, onboarding, welcome screen and
 channel edits). No bot token or Discord connection is needed. Tests use Node's built-in test runner.
@@ -406,6 +414,7 @@ lists the servers it can see.
 - 42 tools: role management, channel overwrites, AutoMod, scheduled events, timeouts, voice/forum/announcement channels; live-tested against a real server.
 - 44 tools: in-place AutoMod and event updates, ambiguity checks for administration targets, filtered-page cursors, explicit unknown role counts, and timezone validation; 71 offline tests.
 - 49 tools: Community onboarding and welcome screen, and `edit-channel`; 76 offline tests.
+- 51 tools: Rules Screening read and write through the member-verification route; 80 offline tests.
 - Robustness: the string `"null"` accepted as a clear, member lookup through REST search, bounded member fetches.
 
 ## Credits

@@ -18,6 +18,7 @@ import { createEvent, listEvents, deleteEvent } from './events.js';
 import { editAutomodRule, editEvent, lifecycleTools } from './lifecycle.js';
 import { timeoutMember, removeTimeout } from './moderation.js';
 import { getOnboarding, setOnboarding, getWelcomeScreen, setWelcomeScreen, editChannel } from './community.js';
+import { getRulesScreening, setRulesScreening } from './screening.js';
 import { findMember } from './member-lookup.js';
 import { findRole, type Resolvers } from './shared.js';
 
@@ -734,6 +735,25 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           required: ["channel"],
         },
       },
+      {
+        name: "get-rules-screening",
+        description: "Read Rules Screening (membership screening): whether it has been set up, its description and the rules new members must accept",
+        inputSchema: { type: "object", properties: { server: { type: "string" } } },
+      },
+      {
+        name: "set-rules-screening",
+        description: "Set Rules Screening on a Community server: the list of rules (replaces all, max 16) new members must accept before they can talk, an optional description, and enabled",
+        inputSchema: {
+          type: "object",
+          properties: {
+            server: { type: "string" },
+            rules: { type: "array", minItems: 1, maxItems: 16, items: { type: "string", maxLength: 300 } },
+            enabled: { type: "boolean" },
+            description: { type: ["string", "null"], maxLength: 300 },
+            reason: { type: "string" },
+          },
+        },
+      },
     ],
   };
 });
@@ -1100,6 +1120,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case "get-welcome-screen": return await getWelcomeScreen(args, resolvers);
       case "set-welcome-screen": return await setWelcomeScreen(args, resolvers);
       case "edit-channel": return await editChannel(args, resolvers);
+      case "get-rules-screening": return await getRulesScreening(args, resolvers);
+      case "set-rules-screening": return await setRulesScreening(args, resolvers);
 
       default:
         throw new Error(`Unknown tool: ${name}`);
