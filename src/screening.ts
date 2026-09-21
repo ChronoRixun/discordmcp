@@ -1,4 +1,4 @@
-import { Routes } from 'discord.js';
+import { GuildFeature, Routes, type Guild } from 'discord.js';
 import { z } from 'zod';
 import { json, reason, type Resolvers } from './shared.js';
 
@@ -19,6 +19,11 @@ export const SetRulesScreeningSchema = z.object({
 interface ScreeningField { field_type: string; label: string; values?: string[]; required: boolean }
 interface ScreeningForm { version?: string; form_fields?: ScreeningField[]; description?: string | null }
 
+/** The form route never says whether the gate is on; Discord keeps that as a guild feature flag. */
+function gateEnabled(guild: Pick<Guild, 'features'>) {
+  return guild.features.includes(GuildFeature.MemberVerificationGateEnabled);
+}
+
 export function serializeScreening(form: ScreeningForm, enabled: boolean | null) {
   const terms = form.form_fields?.find(field => field.field_type === 'TERMS');
   return {
@@ -36,7 +41,7 @@ export async function getRulesScreening(args: unknown, r: Resolvers) {
   const guild = await r.findGuild(server);
   try {
     const form = await guild.client.rest.get(Routes.guildMemberVerification(guild.id)) as ScreeningForm;
-    return json(serializeScreening(form, null));
+    return json(serializeScreening(form, gateEnabled(guild)));
   } catch (error) {
     if ((error as { status?: number }).status === 404) return json({ enabled: false, description: null, label: null, rules: [], updated: null, note: 'Rules Screening has never been set up on this server' });
     throw error;
@@ -57,5 +62,5 @@ export async function setRulesScreening(args: unknown, r: Resolvers) {
   const form = await guild.client.rest.patch(Routes.guildMemberVerification(guild.id), {
     body, ...(p.reason !== undefined && { reason: p.reason }),
   }) as ScreeningForm;
-  return json(serializeScreening(form, p.enabled ?? null));
+  return json(serializeScreening(form, p.enabled ?? gateEnabled(guild)));
 }

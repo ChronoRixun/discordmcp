@@ -199,7 +199,8 @@ moves it out), slowmode or NSFW flag in one call and works on any channel type.
 before they can talk, react or DM. discord.js has no wrapper for it, so the tool calls
 `/guilds/{id}/member-verification` directly; `rules` replaces the whole list (max 16),
 `enabled` switches the gate, `description` is the text above the rules. `get-rules-screening`
-reports a server where it was never set up instead of failing.
+reports a server where it was never set up instead of failing, and reads `enabled` from the
+guild's feature flags because the form route never carries it.
 
 ## Roles and channel access
 
