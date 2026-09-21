@@ -48,12 +48,6 @@ A fork of [v-3/discordmcp](https://github.com/v-3/discordmcp) with **42 tools** 
 | `get-server-info` | Member count, boosts, creation date, channels, roles, verification level and enabled features |
 | `create-invite` | Create a shareable invite link with optional expiry and use limit |
 | `list-members` | List server members with their roles |
-
-Tools that take a `user` accept a user ID, username, display name, tag or global
-name (case-insensitive). Names resolve through Discord's member search endpoint,
-with a bounded cache refresh as a fallback, so a large server cannot stall the call.
-Tools that take a `role` or `channel` accept a name or an ID; channel names may
-carry a leading `#`.
 | **Roles** | |
 | `create-role` | Create a role with colour, hoist, mentionable flag and permissions |
 | `edit-role` | Change name, colour (null clears), hoist, mentionable, permissions or position |
@@ -75,6 +69,12 @@ carry a leading `#`.
 | `create-event` | Scheduled event in a voice/stage channel or at an external location |
 | `list-events` | Events as JSON with status, times and interested counts |
 | `delete-event` | Delete an event by name or ID |
+
+Tools that take a `user` accept a user ID, username, display name, tag or global
+name (case-insensitive). Names resolve through Discord's member search endpoint,
+with a bounded cache refresh as a fallback, so a large server cannot stall the call.
+Tools that take a `role` or `channel` accept a name or an ID; channel names may
+carry a leading `#`.
 
 ## Reading messages
 
