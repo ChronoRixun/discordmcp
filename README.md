@@ -1,6 +1,6 @@
 # Discord MCP Server (Extended)
 
-A fork of [v-3/discordmcp](https://github.com/v-3/discordmcp) with **42 tools** for Discord messaging and community management through Codex, Claude, and other MCP clients. Runs locally over stdio using your Discord bot.
+A fork of [v-3/discordmcp](https://github.com/v-3/discordmcp) with **44 tools** for Discord messaging and community management through Codex, Claude, and other MCP clients. Runs locally over stdio using your Discord bot.
 
 ## Highlights
 
@@ -14,7 +14,7 @@ A fork of [v-3/discordmcp](https://github.com/v-3/discordmcp) with **42 tools** 
 - **Channel types:** text, voice, forum (with tags) and announcement channels.
 - **Community management:** categories, pins, invites, member listing, kick and ban.
 - **Validated before sending:** permission names, colours, IDs, dates and rule shapes are checked locally, so a bad request fails with a clear message instead of a Discord error.
-- **Tested behavior:** 56 offline regression tests cover every module: reads, paging and filters, lookups, channel inspection, sending, embed editing, roles, channel permissions, AutoMod, events and timeouts.
+- **Tested behavior:** 71 offline regression tests cover every module: reads, paging and filters, lookups, channel inspection, sending, embed editing, roles, channel permissions, AutoMod, events and timeouts.
 
 ## Tools
 
@@ -64,17 +64,21 @@ A fork of [v-3/discordmcp](https://github.com/v-3/discordmcp) with **42 tools** 
 | **AutoMod** | |
 | `create-automod-rule` | Keyword, keyword-preset, spam or mention-spam rule with block, alert and timeout actions |
 | `list-automod-rules` | Rules as JSON with triggers, actions and exemptions |
+| `edit-automod-rule` | Enable/disable or edit a rule in place; preserve actions and omitted fields |
 | `delete-automod-rule` | Delete a rule by name or ID |
 | **Events** | |
 | `create-event` | Scheduled event in a voice/stage channel or at an external location |
 | `list-events` | Events as JSON with status, times and interested counts |
+| `edit-event` | Reschedule, rename, start, complete or cancel without recreating the event |
 | `delete-event` | Delete an event by name or ID |
 
 Tools that take a `user` accept a user ID, username, display name, tag or global
 name (case-insensitive). Names resolve through Discord's member search endpoint,
-with a bounded cache refresh as a fallback, so a large server cannot stall the call.
+combined with cached members. Ambiguous names and truncated searches require a user ID;
+API failures remain visible. Uncached global/display names may need an ID too.
 Tools that take a `role` or `channel` accept a name or an ID; channel names may
-carry a leading `#`.
+carry a leading `#`. Duplicate role, rule and event names are rejected rather than
+silently selecting the first match. Prefer IDs for administration.
 
 ## Reading messages
 
@@ -90,9 +94,16 @@ Optional filters:
   `after` pages, which Discord itself returns oldest first.
 - `author`: keep only messages whose user ID, tag, username or display name
   matches (case-insensitive). Applied after the fetch, so a page can be shorter
-  than `limit`; page on with `before` set to the last ID returned.
+  than `limit`, including zero matches. Use `includePageInfo: true` to keep paging.
 - `excludeSystem`: drop system rows such as "pinned a message" and join notices,
   keeping ordinary posts and replies.
+
+With `includePageInfo: true`, the result is `{ messages, page }` instead of an array.
+`page.nextBefore` and `page.nextAfter` are the oldest/newest fetched IDs **before
+filtering**; pass the appropriate cursor back as `before`/`after`. `fetched`,
+`returned`, and `mayHaveMore` describe that page. A full page may have more history,
+but is not proof that it does; an empty fetch has null cursors. This opt-in format
+preserves the original array response for existing clients.
 
 Each message also includes:
 
@@ -168,7 +179,8 @@ with `position` (higher is higher in the list). `@everyone` can only have its
 permissions changed. The bot can only manage roles below its own highest role, and
 newly created roles land at the bottom of the list, so create them and then order
 them with `position`, highest first. `list-roles` includes member counts from a
-bounded member fetch; on a very large server a count can lag the cache.
+bounded member fetch; if that fails, `members` is null and `cachedMembers` is
+reported separately. `list-members` uses a bounded REST page, not gateway chunks.
 
 `set-channel-permissions` edits one overwrite in a channel of any type for either a
 `role` or a `member`: `allow` grants, `deny` denies, `clear` returns those permissions
@@ -190,6 +202,21 @@ of the other types. `exemptRoles` and `exemptChannels` take names or IDs.
 or stage channel) or `location` plus `endTime` for an event held elsewhere, such as
 a game server. `list-events` includes interested counts. Events are guild-only.
 
+`edit-automod-rule` changes only supplied fields: name, enabled, keywords, regexes,
+allow list, mention limit, and exemptions. Exemption lists use IDs and replace the
+whole list; `[]` clears it. Trigger type and actions remain unchanged. Metadata is
+validated against the existing trigger and merged so a keyword edit keeps regexes
+and allow lists. A simple pause is `{ "rule": "<rule ID>", "enabled": false }`.
+
+`edit-event` accepts name, description (empty string clears), start/end times,
+external location, and status (`active`, `completed`, `canceled`). It preserves the
+ID and RSVPs. Times require a timezone and are checked against existing times;
+only scheduled events can be rescheduled. Scheduled events can start or cancel;
+active events can complete. Finished events cannot be edited.
+
+API references: [AutoMod modification](https://docs.discord.com/developers/resources/auto-moderation#modify-auto-moderation-rule)
+and [scheduled event modification](https://docs.discord.com/developers/resources/guild-scheduled-event#modify-guild-scheduled-event).
+
 `timeout-member` applies Discord's timeout for 1 to 40320 minutes (28 days); the
 member can read but not post, react or speak. It refuses members the bot cannot
 moderate instead of failing later.
@@ -199,7 +226,7 @@ moderate instead of failing later.
 
 ## Testing
 
-Run `npm test` to compile and run all 56 offline regression tests (reading, paging
+Run `npm test` to compile and run all 71 offline regression tests (reading, paging
 and filters, single-message and pin lookups, channel info, sending, embed editing,
 roles, channel permissions, AutoMod, events and timeouts). No bot token or Discord connection is needed. Tests use Node's built-in test runner.
 
@@ -342,3 +369,16 @@ lists the servers it can see.
 
 - Original project by [v-3](https://github.com/v-3/discordmcp)
 - Extended by [ChronoRixun](https://github.com/ChronoRixun)
+
+## Remaining community features
+
+The MCP is an administration interface, not yet an always-on community bot.
+Reaction roles, button role pickers, welcome listeners and persistent interaction
+handlers are not implemented. They need a resident process, durable role-panel
+configuration, hierarchy/permission checks, and restart recovery before deployment.
+Community onboarding and welcome-screen tools also remain separate work; installing
+this MCP does not enable Community or change server discoverability.
+
+The latest two update tools are covered offline; their Discord mutations have not
+been live-tested. Restart the configured MCP process to load rebuilt tools. Existing
+client sessions may retain older tool schemas until reconnection.

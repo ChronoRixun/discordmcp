@@ -15,8 +15,10 @@ import { createRole, editRole, deleteRole, listRoles } from './roles.js';
 import { setChannelPermissions, removeChannelOverwrite } from './channel-permissions.js';
 import { createAutomodRule, listAutomodRules, deleteAutomodRule } from './automod.js';
 import { createEvent, listEvents, deleteEvent } from './events.js';
+import { editAutomodRule, editEvent, lifecycleTools } from './lifecycle.js';
 import { timeoutMember, removeTimeout } from './moderation.js';
-import type { Resolvers } from './shared.js';
+import { findMember } from './member-lookup.js';
+import { findRole, type Resolvers } from './shared.js';
 
 // Load environment variables
 dotenv.config();
@@ -241,44 +243,8 @@ const RemoveRoleSchema = z.object({
 
 const ListMembersSchema = z.object({
   server: z.string().optional().describe('Server name or ID'),
-  limit: z.number().min(1).max(100).optional().describe('Max members to list'),
+  limit: z.number().int().min(1).max(100).optional().describe('Max members to list'),
 });
-
-// Helper to find a member by ID, or by username / display name / tag (case-insensitive).
-async function findMember(guild: any, userIdentifier: string): Promise<GuildMember> {
-  if (/^\d{17,20}$/.test(userIdentifier)) {
-    try {
-      const member = await guild.members.fetch(userIdentifier);
-      if (member) return member;
-    } catch {}
-  }
-  const wanted = userIdentifier.toLowerCase().replace(/^@/, '');
-  const matches = (m: GuildMember) =>
-    m.user.username.toLowerCase() === wanted ||
-    m.displayName.toLowerCase() === wanted ||
-    m.user.tag.toLowerCase() === wanted ||
-    (m.user.globalName ?? '').toLowerCase() === wanted;
-  // REST search first (prefix match on username and nickname); it never waits on gateway chunks.
-  try {
-    const found = await guild.members.search({ query: wanted, limit: 25 });
-    const exact = found.find(matches);
-    if (exact) return exact;
-  } catch {}
-  // Fall back to the cache, refreshed with a bounded gateway fetch.
-  try { await guild.members.fetch({ time: 10_000 }); } catch {}
-  const cached = guild.members.cache.find(matches);
-  if (!cached) throw new Error(`Member "${userIdentifier}" not found in ${guild.name}`);
-  return cached;
-}
-
-// Helper to find a role by name or ID
-async function findRole(guild: any, roleIdentifier: string) {
-  const role = guild.roles.cache.find(
-    (r: any) => r.id === roleIdentifier || r.name.toLowerCase() === roleIdentifier.toLowerCase()
-  );
-  if (!role) throw new Error(`Role "${roleIdentifier}" not found`);
-  return role;
-}
 
 const resolvers: Resolvers = { findGuild, findChannel, findGuildChannel, findMember };
 
@@ -299,6 +265,7 @@ const server = new Server(
 server.setRequestHandler(ListToolsRequestSchema, async () => {
   return {
     tools: [
+      ...lifecycleTools,
       {
         name: "send-message",
         description: "Send a message to a Discord channel, optionally as a reply",
@@ -325,6 +292,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             before: { type: "string", description: "Only messages older than this message ID (paging)" },
             after: { type: "string", description: "Only messages newer than this message ID (not with before)" },
             author: { type: "string", description: "Keep only messages by this user ID, tag, username or display name (applied after the fetch)" },
+            includePageInfo: { type: "boolean", default: false, description: "Return messages plus unfiltered page cursors, including when filters match nothing" },
             excludeSystem: { type: "boolean", default: false, description: "Drop system rows such as pin and join notices" },
           },
           required: ["channel"],
@@ -934,7 +902,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case "get-server-info": {
         const { server: srv } = GetServerInfoSchema.parse(args);
         const guild = await findGuild(srv);
-        await guild.members.fetch();
         const info = [
           `**${guild.name}**`,
           `ID: ${guild.id}`,
@@ -1012,8 +979,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case "list-members": {
         const { server: srv, limit } = ListMembersSchema.parse(args);
         const guild = await findGuild(srv);
-        await guild.members.fetch({ limit: limit || 50 });
-        const members = guild.members.cache
+        const fetched = await guild.members.list({ limit: limit || 50, cache: false });
+        const members = fetched
           .sort((a: GuildMember, b: GuildMember) => (a.joinedTimestamp || 0) - (b.joinedTimestamp || 0))
           .first(limit || 50);
         const lines = members?.map((m: GuildMember) => {
@@ -1022,6 +989,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }) || [];
         return { content: [{ type: "text", text: `Members of ${guild.name} (${guild.memberCount} total):\n${lines.join('\n')}` }] };
       }
+
+      case "edit-automod-rule": return await editAutomodRule(args, resolvers);
+      case "edit-event": return await editEvent(args, resolvers);
 
       case "set-channel-permissions": {
         return await setChannelPermissions(args, resolvers);

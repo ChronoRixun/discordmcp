@@ -3,10 +3,9 @@ import {
   type GuildScheduledEvent,
 } from 'discord.js';
 import { z } from 'zod';
-import { json, reason, text, type Resolvers } from './shared.js';
+import { json, reason, selectUnique, text, type Resolvers } from './shared.js';
 
-const isoDate = z.string().refine(value => !Number.isNaN(Date.parse(value)),
-  'Expected an ISO 8601 date-time such as 2026-09-26T20:00:00-05:00');
+const isoDate = z.string().datetime({ offset: true });
 
 export const CreateEventSchema = z.object({
   server: z.string().optional(),
@@ -86,8 +85,7 @@ export async function deleteEvent(args: unknown, r: Resolvers) {
   const { server, event: identifier } = DeleteEventSchema.parse(args);
   const guild = await r.findGuild(server);
   const events = await guild.scheduledEvents.fetch();
-  const wanted = identifier.toLowerCase();
-  const event = events.find(candidate => candidate.id === identifier || candidate.name.toLowerCase() === wanted);
+  const event = selectUnique(events.values(), identifier, "event");
   if (!event) throw new Error(`Event "${identifier}" not found in ${guild.name}. Events: ${events.map(x => `"${x.name}"`).join(', ') || 'none'}`);
   const name = event.name;
   await event.delete();

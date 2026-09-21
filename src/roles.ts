@@ -96,10 +96,11 @@ export async function listRoles(args: unknown, r: Resolvers) {
   const { server } = ListRolesSchema.parse(args);
   const guild = await r.findGuild(server);
   // Member counts need the member cache; a slow gateway chunk must not hang the tool.
-  try { await guild.members.fetch({ time: 10_000 }); } catch { /* counts fall back to what is cached */ }
+  let complete = true;
+  try { await guild.members.fetch({ time: 10_000 }); } catch { complete = false; }
   const roles = Array.from(guild.roles.cache.values())
     .filter(role => role.id !== guild.id)
     .sort((a, b) => b.position - a.position)
-    .map(serializeRole);
+    .map(role => complete ? serializeRole(role) : { ...serializeRole(role), members: null, cachedMembers: role.members.size });
   return json(roles);
 }

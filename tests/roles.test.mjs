@@ -87,3 +87,21 @@ test('list-roles returns JSON highest first, without @everyone, with permission 
   assert.deepEqual(data.map(r => r.name), ['Admin', 'Mod']);
   assert.deepEqual(data[1], { id: '20000000000000000', name: 'Mod', color: '#e8a33d', hoist: true, mentionable: false, position: 2, managed: false, members: 1, permissions: ['KickMembers', 'ManageMessages'] });
 });
+
+test('duplicate role names are refused for edit/delete and IDs still select exactly one', async () => {
+  const a = role(), b = role({ id: '30000000000000000', name: 'MOD' });
+  const r = resolvers(guild([a,b]));
+  await assert.rejects(editRole({ role: 'mod', name: 'x' }, r), /Multiple/);
+  await assert.rejects(deleteRole({ role: 'mod' }, r), /Multiple/);
+  assert.equal(a.calls.edit.length + a.calls.delete.length + b.calls.edit.length + b.calls.delete.length, 0);
+  await editRole({ role: b.id, name: 'Selected' }, r);
+  assert.deepEqual(b.calls.edit, [{ name: 'Selected' }]);
+});
+
+test('role counts are explicitly unknown when the member fetch fails', async () => {
+  const g = guild([role()]);
+  g.members.fetch = async () => { throw new Error('timeout'); };
+  const data = JSON.parse((await listRoles({}, resolvers(g))).content[0].text);
+  assert.equal(data[0].members, null);
+  assert.equal(data[0].cachedMembers, 1);
+});

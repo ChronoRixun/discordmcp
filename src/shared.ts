@@ -36,11 +36,20 @@ export function text(value: string) {
 
 /** Role by ID or case-insensitive name. "@everyone" resolves to the guild's base role. */
 export function findRole(guild: Guild, identifier: string): Role {
-  const wanted = identifier.toLowerCase();
-  const role = guild.roles.cache.find(r => r.id === identifier || r.name.toLowerCase() === wanted);
+  const role = selectUnique(guild.roles.cache.values(), identifier, 'role');
   if (!role) {
     const names = guild.roles.cache.filter(r => r.id !== guild.id).map(r => `"${r.name}"`).join(', ');
     throw new Error(`Role "${identifier}" not found in ${guild.name}. Available roles: ${names || 'none'}`);
   }
   return role;
+}
+
+/** IDs win over names; ambiguous names must never select a mutation target. */
+export function selectUnique<T extends { id: string; name: string }>(items: Iterable<T>, identifier: string, kind: string): T | undefined {
+  const all = Array.from(items);
+  const byId = all.find(item => item.id === identifier);
+  if (byId) return byId;
+  const matches = all.filter(item => item.name.toLowerCase() === identifier.toLowerCase());
+  if (matches.length > 1) throw new Error(`Multiple ${kind}s named "${identifier}"; use an ID: ${matches.map(item => item.id).join(', ')}`);
+  return matches[0];
 }

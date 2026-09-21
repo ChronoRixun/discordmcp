@@ -221,3 +221,13 @@ test('list-pins serializes pinned messages newest first', async () => {
   assert.equal(data[0].channel, '#welcome');
   assert.equal(data[0].replyPreview, undefined);
 });
+
+test('page metadata advances through a fully filtered page while the default stays an array', async () => {
+  const newer = message({ id: '20000000000000000', type: 6 });
+  const older = message({ id: '10000000000000000', type: 6 });
+  const { data } = await read([older, newer], { channel: 'welcome', excludeSystem: true, limit: 2, includePageInfo: true });
+  assert.deepEqual(data, { messages: [], page: { fetched: 2, returned: 0, nextBefore: older.id, nextAfter: newer.id, mayHaveMore: true } });
+  const empty = await read([], { channel: 'welcome', includePageInfo: true });
+  assert.deepEqual(empty.data.page, { fetched: 0, returned: 0, nextBefore: null, nextAfter: null, mayHaveMore: false });
+  assert.ok(Array.isArray((await read([older])).data));
+});

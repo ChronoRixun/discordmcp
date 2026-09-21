@@ -11,6 +11,7 @@ export const ReadMessagesSchema = z.object({
   after: snowflake.optional(),
   author: z.string().min(1).optional(),
   excludeSystem: z.boolean().default(false),
+  includePageInfo: z.boolean().default(false),
 }).refine(value => !(value.before && value.after), 'Use before or after, not both');
 
 export const GetMessageSchema = z.object({
@@ -125,10 +126,10 @@ export function serializeMessage(message: Message, channel: TextChannel) {
 /**
  * One history request, with reply previews limited to messages in that batch.
  * `author` and `excludeSystem` filter after the fetch, so a page can come back
- * shorter than `limit`; page on with `before` set to the last id returned.
+ * shorter than `limit`; includePageInfo supplies cursors from the unfiltered page.
  */
 export async function readMessages(args: unknown, findChannel: ChannelResolver) {
-  const { server, channel: identifier, limit, before, after, author, excludeSystem } = ReadMessagesSchema.parse(args);
+  const { server, channel: identifier, limit, before, after, author, excludeSystem, includePageInfo } = ReadMessagesSchema.parse(args);
   const channel = await findChannel(identifier, server);
   const messages = await channel.messages.fetch({
     limit, cache: false, ...(before && { before }), ...(after && { after }),
@@ -144,7 +145,11 @@ export async function readMessages(args: unknown, findChannel: ChannelResolver) 
         : undefined;
       return { ...serializeMessage(message, channel), replyPreview: preview(repliedTo) };
     });
-  return json(formatted);
+  return json(includePageInfo ? { messages: formatted, page: {
+    fetched: ordered.length, returned: formatted.length,
+    nextBefore: ordered.at(-1)?.id ?? null, nextAfter: ordered[0]?.id ?? null,
+    mayHaveMore: ordered.length === limit,
+  } } : formatted);
 }
 
 /** One message by link or by channel + id; a same-channel reply target is fetched for the preview. */

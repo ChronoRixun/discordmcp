@@ -3,7 +3,7 @@ import {
   AutoModerationRuleTriggerType, type AutoModerationActionOptions, type AutoModerationRule, type Guild,
 } from 'discord.js';
 import { z } from 'zod';
-import { findRole, json, reason, text, type Resolvers } from './shared.js';
+import { findRole, json, reason, selectUnique, text, type Resolvers } from './shared.js';
 
 const triggerTypes = {
   keyword: AutoModerationRuleTriggerType.Keyword,
@@ -116,8 +116,7 @@ export async function deleteAutomodRule(args: unknown, r: Resolvers) {
   const { server, rule: identifier, reason: why } = DeleteAutomodRuleSchema.parse(args);
   const guild = await r.findGuild(server);
   const rules = await guild.autoModerationRules.fetch();
-  const wanted = identifier.toLowerCase();
-  const rule = rules.find(candidate => candidate.id === identifier || candidate.name.toLowerCase() === wanted);
+  const rule = selectUnique(rules.values(), identifier, "rule");
   if (!rule) throw new Error(`AutoMod rule "${identifier}" not found in ${guild.name}. Rules: ${rules.map(x => `"${x.name}"`).join(', ') || 'none'}`);
   const name = rule.name;
   await rule.delete(why);
