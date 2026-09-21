@@ -12,8 +12,9 @@ A fork of [v-3/discordmcp](https://github.com/v-3/discordmcp) with **42 tools** 
 - **Roles and channel access:** roles with colour, hoist, mentionable flag and permissions; per-role or per-member channel overwrites.
 - **AutoMod, events and timeouts:** native AutoMod rules (keywords, presets, spam, mention spam), scheduled events with interested counts, and Discord timeouts.
 - **Channel types:** text, voice, forum (with tags) and announcement channels.
-- **Community management:** create text channels and categories, manage roles, pin messages, create invites, and moderate members.
-- **Tested behavior:** 31 offline regression tests cover rich reads, paging and filters, single-message and pin lookups, channel inspection, sending, server selection, partial updates, validation, and failure handling.
+- **Community management:** categories, pins, invites, member listing, kick and ban.
+- **Validated before sending:** permission names, colours, IDs, dates and rule shapes are checked locally, so a bad request fails with a clear message instead of a Discord error.
+- **Tested behavior:** 56 offline regression tests cover every module: reads, paging and filters, lookups, channel inspection, sending, embed editing, roles, channel permissions, AutoMod, events and timeouts.
 
 ## Tools
 
@@ -34,7 +35,7 @@ A fork of [v-3/discordmcp](https://github.com/v-3/discordmcp) with **42 tools** 
 | **Channels** | |
 | `create-category` | Create a channel category |
 | `create-channel` | Create a text, voice, forum (with tags) or announcement channel, optionally under a category |
-| `list-channels` | List all channels organized by category |
+| `list-channels` | List channels by category, marking voice, forum and announcement channels |
 | `get-channel-info` | Topic, category, slowmode, pin count, effective `@everyone` permissions and overwrites |
 | `set-channel-permissions` | Allow, deny or clear named permissions for one role or member in a channel |
 | `remove-channel-overwrite` | Remove a role's or member's overwrite so it inherits again |
@@ -44,9 +45,15 @@ A fork of [v-3/discordmcp](https://github.com/v-3/discordmcp) with **42 tools** 
 | `set-slowmode` | Set slowmode delay on a channel (0 to disable) |
 | `delete-channel` | Delete a channel |
 | **Server** | |
-| `get-server-info` | Server stats: member count, boosts, creation date, channels, roles |
+| `get-server-info` | Member count, boosts, creation date, channels, roles, verification level and enabled features |
 | `create-invite` | Create a shareable invite link with optional expiry and use limit |
 | `list-members` | List server members with their roles |
+
+Tools that take a `user` accept a user ID, username, display name, tag or global
+name (case-insensitive). Names resolve through Discord's member search endpoint,
+with a bounded cache refresh as a fallback, so a large server cannot stall the call.
+Tools that take a `role` or `channel` accept a name or an ID; channel names may
+carry a leading `#`.
 | **Roles** | |
 | `create-role` | Create a role with colour, hoist, mentionable flag and permissions |
 | `edit-role` | Change name, colour (null clears), hoist, mentionable, permissions or position |
@@ -148,6 +155,9 @@ Example: change only the title and remove the image:
 {"channel":"welcome","messageId":"MESSAGE_ID","title":"Welcome aboard","image":null}
 ```
 
+Some MCP clients cannot send a JSON `null` and deliver the string `"null"` instead;
+`edit-embed` and `edit-role` treat that string as an explicit clear.
+
 ## Roles and channel access
 
 `create-role` and `edit-role` take `permissions` as discord.js permission names
@@ -155,7 +165,10 @@ Example: change only the title and remove the image:
 before anything is sent. `edit-role` replaces the whole permission set when
 `permissions` is given, clears the colour with `color: null`, and moves the role
 with `position` (higher is higher in the list). `@everyone` can only have its
-permissions changed. The bot can only manage roles below its own highest role.
+permissions changed. The bot can only manage roles below its own highest role, and
+newly created roles land at the bottom of the list, so create them and then order
+them with `position`, highest first. `list-roles` includes member counts from a
+bounded member fetch; on a very large server a count can lag the cache.
 
 `set-channel-permissions` edits one overwrite in a channel of any type for either a
 `role` or a `member`: `allow` grants, `deny` denies, `clear` returns those permissions
@@ -302,9 +315,9 @@ Add to your Claude Desktop config file:
 ## Multi-Server Support
 
 If the bot is in multiple servers, pass the `server` parameter (name or ID).
-If the bot is in only one server, the parameter is optional. `read-messages` and
-`edit-embed`, `get-message`, `list-pins`, `get-channel-info`, `send-message` and
-`send-embed` all honor explicit server selection.
+If the bot is in only one server, the parameter is optional. Every tool honours an
+explicit `server`; when none is given and the bot is in several servers, the error
+lists the servers it can see.
 
 ## Security
 
@@ -312,6 +325,18 @@ If the bot is in only one server, the parameter is optional. `read-messages` and
 - The bot token is stored in local configuration, never transmitted through chat
 - Channel and server access follows Discord's permission model. Grant only the permissions needed for the tools you use.
 - `lock-channel` changes only the `@everyone` overwrite; other role/member allows can still permit posting. `unlock-channel` clears those two overrides rather than restoring a saved permissions snapshot.
+- `create-role`, `edit-role` and `set-channel-permissions` can grant powerful permissions, including `Administrator`. Approve those calls deliberately; the server validates names, not intent.
+- AutoMod `timeoutMinutes` acts without a human in the loop. Leave it off and alert a mod channel unless automatic timeouts are wanted.
+
+## Fork history
+
+- v-3/discordmcp: send and read messages.
+- 13 tools: embeds, channels, roles, reactions, moderation.
+- 27 tools: categories, pins, invites, slowmode, lock/unlock, kick/ban/unban, role assignment, member listing.
+- Rich `read-messages` (IDs, links, embeds, attachments, reactions, replies) and safe partial `edit-embed`; first offline test suite.
+- 30 tools: `get-message`, `list-pins`, `get-channel-info`; paging and filters on reads; replies and captions on sends; `server` honoured everywhere.
+- 42 tools: role management, channel overwrites, AutoMod, scheduled events, timeouts, voice/forum/announcement channels; live-tested against a real server.
+- Robustness: the string `"null"` accepted as a clear, member lookup through REST search, bounded member fetches.
 
 ## Credits
 
