@@ -186,7 +186,7 @@ moderate instead of failing later.
 
 ## Testing
 
-Run `npm test` to compile and run all 55 offline regression tests (reading, paging
+Run `npm test` to compile and run all 56 offline regression tests (reading, paging
 and filters, single-message and pin lookups, channel info, sending, embed editing,
 roles, channel permissions, AutoMod, events and timeouts). No bot token or Discord connection is needed. Tests use Node's built-in test runner.
 

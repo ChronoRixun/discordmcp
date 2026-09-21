@@ -10,6 +10,11 @@ export type Resolvers = {
 };
 
 export const reason = z.string().min(1).max(512).optional();
+
+/** Some MCP clients send null as the string "null"; treat that as an explicit clear. */
+export function clearable<T extends z.ZodTypeAny>(schema: T) {
+  return z.preprocess(value => (value === 'null' ? null : value), schema.nullable().optional());
+}
 export const hexColor = z.string().regex(/^#?[0-9a-fA-F]{6}$/, 'Expected a hex colour such as #E8A33D');
 export const permissionName = z.string().refine(
   name => Object.prototype.hasOwnProperty.call(PermissionFlagsBits, name),

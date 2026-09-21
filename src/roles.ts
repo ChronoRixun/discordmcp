@@ -1,6 +1,6 @@
 import type { Role, RoleEditOptions } from 'discord.js';
 import { z } from 'zod';
-import { findRole, hexColor, json, parseColor, permissionList, reason, text, type Resolvers } from './shared.js';
+import { clearable, findRole, hexColor, json, parseColor, permissionList, reason, text, type Resolvers } from './shared.js';
 
 export const CreateRoleSchema = z.object({
   server: z.string().optional(),
@@ -17,7 +17,7 @@ export const EditRoleSchema = z.object({
   server: z.string().optional(),
   role: z.string().min(1),
   name: z.string().min(1).max(100).optional(),
-  color: hexColor.nullable().optional(),
+  color: clearable(hexColor),
   hoist: z.boolean().optional(),
   mentionable: z.boolean().optional(),
   permissions: permissionList.optional(),
@@ -95,7 +95,8 @@ export async function deleteRole(args: unknown, r: Resolvers) {
 export async function listRoles(args: unknown, r: Resolvers) {
   const { server } = ListRolesSchema.parse(args);
   const guild = await r.findGuild(server);
-  await guild.members.fetch();
+  // Member counts need the member cache; a slow gateway chunk must not hang the tool.
+  try { await guild.members.fetch({ time: 10_000 }); } catch { /* counts fall back to what is cached */ }
   const roles = Array.from(guild.roles.cache.values())
     .filter(role => role.id !== guild.id)
     .sort((a, b) => b.position - a.position)

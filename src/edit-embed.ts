@@ -1,7 +1,8 @@
 import { EmbedBuilder, type APIEmbed, type TextChannel } from 'discord.js';
 import { z } from 'zod';
+import { clearable } from './shared.js';
 
-const text = (max: number) => z.string().min(1).max(max).nullable().optional();
+const text = (max: number) => clearable(z.string().min(1).max(max));
 export const EditEmbedSchema = z.object({
   server: z.string().optional(),
   channel: z.string(),
@@ -9,15 +10,15 @@ export const EditEmbedSchema = z.object({
   embedIndex: z.number().int().min(0).max(9).default(0),
   title: text(256),
   description: text(4096),
-  color: z.string().regex(/^#?[0-9a-fA-F]{6}$/).nullable().optional(),
-  fields: z.array(z.object({
+  color: clearable(z.string().regex(/^#?[0-9a-fA-F]{6}$/)),
+  fields: clearable(z.array(z.object({
     name: z.string().min(1).max(256),
     value: z.string().min(1).max(1024),
     inline: z.boolean().optional(),
-  })).max(25).nullable().optional(),
+  })).max(25)),
   footer: text(2048),
-  thumbnail: z.string().url().nullable().optional(),
-  image: z.string().url().nullable().optional(),
+  thumbnail: clearable(z.string().url()),
+  image: clearable(z.string().url()),
 }).refine(value => ['title', 'description', 'color', 'fields', 'footer', 'thumbnail', 'image']
   .some(key => value[key as keyof typeof value] !== undefined),
   'Provide at least one embed field to update');

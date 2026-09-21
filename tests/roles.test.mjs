@@ -45,9 +45,11 @@ test('edit-role edits named properties, clears colour with null and moves positi
   const g = guild([mod]);
   await editRole({ role: 'mod', name: 'Moderator', color: null, mentionable: true, reason: 'tidy' }, resolvers(g));
   assert.deepEqual(mod.calls.edit, [{ name: 'Moderator', color: 0, mentionable: true, reason: 'tidy' }]);
+  await editRole({ role: 'mod', color: 'null' }, resolvers(g));   // clients that stringify null
+  assert.deepEqual(mod.calls.edit[1], { color: 0 });
   assert.deepEqual(mod.calls.setPosition, []);
   await editRole({ role: mod.id, position: 5 }, resolvers(g));
-  assert.deepEqual(mod.calls.edit.length, 1);
+  assert.deepEqual(mod.calls.edit.length, 2);
   assert.deepEqual(mod.calls.setPosition, [[5, { reason: undefined }]]);
 });
 

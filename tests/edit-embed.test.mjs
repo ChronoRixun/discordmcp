@@ -54,6 +54,16 @@ test('explicit null clears only selected properties; footer text preserves its i
   assert.equal(updated.description, original.description);
 });
 
+test('the string "null" clears a property like a real null', async () => {
+  const f = fixture();
+  await editEmbed({ ...base, image: 'null', color: 'null', footer: 'null' }, f.resolve);
+  const updated = f.edits[0].embeds[0];
+  assert.equal(updated.image, undefined);
+  assert.equal(updated.color, undefined);
+  assert.equal(updated.footer, undefined);
+  assert.equal(updated.title, original.title);
+});
+
 test('black color and replacement field list are retained', async () => {
   const f = fixture();
   await editEmbed({ ...base, color: '#000000', fields: [{ name: 'New', value: 'Value' }] }, f.resolve);
