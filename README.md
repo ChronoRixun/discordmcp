@@ -275,7 +275,11 @@ In Codex's MCP server settings, add a stdio server named `discord`:
 Equivalent `~/.codex/config.toml` entry on Windows:
 
 ```toml
+# Top-level setting: place before any [table]. Wait for optional MCP startup.
+mcp_optional_startup_grace_ms = 0
+
 [mcp_servers.discord]
+startup_timeout_sec = 60
 enabled = true
 command = "node"
 args = ['D:\discordmcp\build\index.js']
@@ -287,6 +291,18 @@ DISCORD_TOKEN = "your_bot_token_here"
 Replace the example path with your actual installation. Save and restart the MCP
 connection after changing the configuration or rebuilding the server. Keep the real
 token in local configuration; do not paste it into chat or commit it to Git.
+
+Discord gateway login can take several seconds. Codex normally gives optional MCP
+servers one second when assembling its initial tool catalog; the settings above
+wait for configured startup timeouts instead. The top-level setting affects all
+optional MCP servers, so slow servers can delay startup. See the
+[official MCP configuration documentation](https://learn.chatgpt.com/docs/extend/mcp).
+
+If tools are missing after restarting, check the configured script path first:
+it must point to this rebuilt checkout, not an older clone. The current build
+advertises **44 tools**, including `edit-event` and `edit-automod-rule`. This build
+has been loaded successfully in Codex and verified with a live read-only Discord
+call; that does not imply every mutation has been live-tested.
 
 ## Updating an installation
 
@@ -363,6 +379,7 @@ lists the servers it can see.
 - Rich `read-messages` (IDs, links, embeds, attachments, reactions, replies) and safe partial `edit-embed`; first offline test suite.
 - 30 tools: `get-message`, `list-pins`, `get-channel-info`; paging and filters on reads; replies and captions on sends; `server` honoured everywhere.
 - 42 tools: role management, channel overwrites, AutoMod, scheduled events, timeouts, voice/forum/announcement channels; live-tested against a real server.
+- 44 tools: in-place AutoMod and event updates, ambiguity checks for administration targets, filtered-page cursors, explicit unknown role counts, and timezone validation; 71 offline tests.
 - Robustness: the string `"null"` accepted as a clear, member lookup through REST search, bounded member fetches.
 
 ## Credits
