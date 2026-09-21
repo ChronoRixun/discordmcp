@@ -9,7 +9,7 @@ function fixture({ form = null } = {}) {
     id: '12300000000000000', name: 'Community',
     client: { rest: {
       get: async route => { calls.push(['get', route]); if (!stored) { const e = new Error('Unknown Guild Member Verification Form'); e.status = 404; throw e; } return stored; },
-      patch: async (route, options) => { calls.push(['patch', route, options]); return { version: '2026-09-21T00:00:00Z', description: options.body.description ?? null, form_fields: JSON.parse(options.body.form_fields ?? '[]') }; },
+      patch: async (route, options) => { calls.push(['patch', route, options]); return { version: '2026-09-21T00:00:00Z', description: options.body.description ?? null, form_fields: options.body.form_fields ?? [] }; },
     } },
   };
   return { calls, r: { findGuild: async () => guild } };
@@ -37,7 +37,7 @@ test('set-rules-screening sends the terms form as a JSON string with enabled and
   assert.equal(route, '/guilds/12300000000000000/member-verification');
   assert.equal(options.reason, 'gate');
   assert.equal(options.body.enabled, true);
-  assert.deepEqual(JSON.parse(options.body.form_fields), [{ field_type: 'TERMS', label: 'Read and agree to the following rules', values: ['Be kind', 'No cheating'], required: true }]);
+  assert.deepEqual(options.body.form_fields, [{ field_type: 'TERMS', label: 'Read and agree to the following rules', values: ['Be kind', 'No cheating'], required: true }]);
   const data = JSON.parse(result.content[0].text);
   assert.deepEqual(data.rules, ['Be kind', 'No cheating']);
   assert.equal(data.enabled, true);

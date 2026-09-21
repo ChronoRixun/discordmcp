@@ -51,7 +51,8 @@ export async function setRulesScreening(args: unknown, r: Resolvers) {
   if (p.enabled !== undefined) body.enabled = p.enabled;
   if (p.description !== undefined) body.description = p.description;
   if (p.rules !== undefined) {
-    body.form_fields = JSON.stringify([{ field_type: 'TERMS', label: 'Read and agree to the following rules', values: p.rules, required: true }]);
+    // Discord rejects the JSON-string form the API types describe; it wants a real array.
+    body.form_fields = [{ field_type: 'TERMS', label: 'Read and agree to the following rules', values: p.rules, required: true }];
   }
   const form = await guild.client.rest.patch(Routes.guildMemberVerification(guild.id), {
     body, ...(p.reason !== undefined && { reason: p.reason }),
