@@ -1,24 +1,27 @@
 # Discord MCP Server (Extended)
 
-A fork of [v-3/discordmcp](https://github.com/v-3/discordmcp) with **27 tools** for Discord messaging and community management through Codex, Claude, and other MCP clients. Runs locally over stdio using your Discord bot.
+A fork of [v-3/discordmcp](https://github.com/v-3/discordmcp) with **30 tools** for Discord messaging and community management through Codex, Claude, and other MCP clients. Runs locally over stdio using your Discord bot.
 
 ## Highlights
 
-- **Rich message reading:** inspect embeds, attachment metadata, reactions, message links, reply references, and available thread metadata alongside message text.
+- **Rich message reading:** inspect embeds, attachment metadata, reactions, message links, reply references, and available thread metadata alongside message text. Page with `before`/`after`, filter by author, or drop system rows.
+- **Single-message and pin lookups:** fetch one message by its Discord link, or list every pinned message in a channel.
+- **Channel inspection:** topic, category, slowmode, pins and the effective `@everyone` permissions, so a read-only info channel can be verified rather than assumed.
 - **Partial embed editing:** change one property while preserving omitted fields and other embeds; explicitly clear properties with `null`.
+- **Replies and captions:** plain messages and embeds can reply to a message, and an embed can carry text above it.
 - **Community management:** create text channels and categories, manage roles, pin messages, create invites, and moderate members.
-- **Tested behavior:** 15 offline regression tests cover rich reads, server selection, partial updates, validation, and failure handling.
-
-The latest changes improve `read-messages` and `edit-embed`; the tool count remains 27.
+- **Tested behavior:** 31 offline regression tests cover rich reads, paging and filters, single-message and pin lookups, channel inspection, sending, server selection, partial updates, validation, and failure handling.
 
 ## Tools
 
 | Tool | Description |
 |---|---|
 | **Messaging** | |
-| `send-message` | Send a plain text message to a channel |
-| `read-messages` | Read recent messages with IDs, embeds, attachments, reactions, and reply references (up to 100) |
-| `send-embed` | Send a rich embed with title, description, color, fields, footer, images |
+| `send-message` | Send a plain text message to a channel, optionally as a reply |
+| `read-messages` | Read recent messages with IDs, embeds, attachments, reactions, and reply references (up to 100); page with `before`/`after`, filter by `author`, `excludeSystem` |
+| `get-message` | Fetch one message by Discord link, or by channel and message ID, with a reply preview |
+| `list-pins` | List every pinned message in a channel, newest first |
+| `send-embed` | Send a rich embed with title, description, color, fields, footer, images; optional text above it and reply target |
 | `edit-message` | Edit an existing message sent by the bot |
 | `edit-embed` | Update a selected bot embed while preserving omitted fields and other embeds |
 | `delete-message` | Delete a specific message by ID |
@@ -29,6 +32,7 @@ The latest changes improve `read-messages` and `edit-embed`; the tool count rema
 | `create-category` | Create a channel category |
 | `create-channel` | Create a text channel, optionally under a category, with a topic |
 | `list-channels` | List all channels organized by category |
+| `get-channel-info` | Topic, category, slowmode, pin count, effective `@everyone` permissions and overwrites |
 | `set-channel-topic` | Set or update a channel's topic/description |
 | `lock-channel` | Deny sending messages and adding reactions for `@everyone` in a channel |
 | `unlock-channel` | Clear the `@everyone` send/reaction overrides set by locking |
@@ -55,6 +59,17 @@ and an integer `limit` from 1 to 100 (default 50). The response remains a JSON
 array in the MCP text result, newest first, with the original `channel`, `server`,
 `author`, `content`, and `timestamp` fields preserved.
 
+Optional filters:
+
+- `before` / `after`: a message ID; only older or only newer messages are fetched
+  (one or the other, not both). Every page is returned newest first, including
+  `after` pages, which Discord itself returns oldest first.
+- `author`: keep only messages whose user ID, tag, username or display name
+  matches (case-insensitive). Applied after the fetch, so a page can be shorter
+  than `limit`; page on with `before` set to the last ID returned.
+- `excludeSystem`: drop system rows such as "pinned a message" and join notices,
+  keeping ordinary posts and replies.
+
 Each message also includes:
 
 - `id`, `url`, `channelId`, `serverId`, `authorId`, and `authorBot`.
@@ -72,6 +87,30 @@ Empty text does not imply an empty message: check `embeds` and `attachments`.
 Discord permissions and Message Content Intent still determine what data is
 available. Missing previews do not imply deleted messages. Reading thread
 history and downloading attachment contents are not part of this tool.
+
+## One message, pins and channel settings
+
+`get-message` returns a single message in the same shape. Pass `url` (a Discord
+message link; the server and channel come from the link) or `channel` plus
+`messageId`. When the message replies to another message in the same channel,
+that target is fetched for `replyPreview`; if it cannot be fetched the preview is
+`null` and `reference` still carries the IDs.
+
+`list-pins` returns every pinned message in a channel, newest first, in the same
+shape as `read-messages` (without `replyPreview`).
+
+`get-channel-info` returns the channel's topic, category, slowmode, creation date,
+pinned message IDs, the effective `@everyone` permissions (`view`, `readHistory`,
+`send`, `react`) after overwrites, and each permission overwrite with its role or
+member name. Use it to confirm that an info channel is actually read-only.
+
+## Sending
+
+`send-message` and `send-embed` both honour `server` and accept `replyTo`, a
+message ID in the same channel. A reply to a missing message fails instead of
+silently posting as a plain message. `send-embed` also accepts `content`, plain
+text shown above the embed, and requires at least one embed property. Both report
+the new message's ID and link.
 
 ## Editing embeds safely
 
@@ -94,8 +133,8 @@ Example: change only the title and remove the image:
 
 ## Testing
 
-Run `npm test` to compile and run all 15 offline reader and embed-editing regression
-tests. No bot token or Discord connection is needed. Tests use Node's built-in test runner.
+Run `npm test` to compile and run all 31 offline regression tests (reading, paging
+and filters, single-message and pin lookups, channel info, sending, embed editing). No bot token or Discord connection is needed. Tests use Node's built-in test runner.
 
 ```bash
 npm ci
@@ -210,10 +249,8 @@ Add to your Claude Desktop config file:
 
 If the bot is in multiple servers, pass the `server` parameter (name or ID).
 If the bot is in only one server, the parameter is optional. `read-messages` and
-`edit-embed` both honor explicit server selection.
-
-Known limitation: `send-message` currently accepts but does not forward `server`
-to the channel resolver, so it requires the bot to be in exactly one server.
+`edit-embed`, `get-message`, `list-pins`, `get-channel-info`, `send-message` and
+`send-embed` all honor explicit server selection.
 
 ## Security
 

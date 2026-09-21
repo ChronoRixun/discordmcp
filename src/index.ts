@@ -7,8 +7,10 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { Client, GatewayIntentBits, TextChannel, ChannelType, PermissionFlagsBits, GuildMember } from 'discord.js';
 import { z } from 'zod';
-import { readMessages } from './read-messages.js';
+import { readMessages, getMessage, listPins } from './read-messages.js';
 import { editEmbed } from './edit-embed.js';
+import { getChannelInfo } from './channel-info.js';
+import { sendMessage, sendEmbed } from './send.js';
 
 // Load environment variables
 dotenv.config();
@@ -94,13 +96,7 @@ async function findChannel(channelIdentifier: string, guildIdentifier?: string):
   throw new Error(`Channel "${channelIdentifier}" is not a text channel or not found in server "${guild.name}"`);
 }
 
-// Updated validation schemas
-const SendMessageSchema = z.object({
-  server: z.string().optional().describe('Server name or ID (optional if bot is only in one server)'),
-  channel: z.string().describe('Channel name (e.g., "general") or ID'),
-  message: z.string(),
-});
-
+// Validation schemas
 const CreateCategorySchema = z.object({
   server: z.string().optional().describe('Server name or ID'),
   name: z.string().describe('Category name'),
@@ -126,22 +122,6 @@ const SetChannelTopicSchema = z.object({
 const LockChannelSchema = z.object({
   server: z.string().optional().describe('Server name or ID'),
   channel: z.string().describe('Channel name or ID'),
-});
-
-const SendEmbedSchema = z.object({
-  server: z.string().optional().describe('Server name or ID'),
-  channel: z.string().describe('Channel name or ID'),
-  title: z.string().optional().describe('Embed title'),
-  description: z.string().optional().describe('Embed body text (supports markdown)'),
-  color: z.string().optional().describe('Hex color (e.g. "#E8A33D")'),
-  fields: z.array(z.object({
-    name: z.string(),
-    value: z.string(),
-    inline: z.boolean().optional(),
-  })).optional().describe('Embed fields'),
-  footer: z.string().optional().describe('Footer text'),
-  thumbnail: z.string().optional().describe('Thumbnail URL'),
-  image: z.string().optional().describe('Large image URL'),
 });
 
 const AddReactionSchema = z.object({
@@ -293,47 +273,31 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
     tools: [
       {
         name: "send-message",
-        description: "Send a message to a Discord channel",
+        description: "Send a message to a Discord channel, optionally as a reply",
         inputSchema: {
           type: "object",
           properties: {
-            server: {
-              type: "string",
-              description: 'Server name or ID (optional if bot is only in one server)',
-            },
-            channel: {
-              type: "string",
-              description: 'Channel name (e.g., "general") or ID',
-            },
-            message: {
-              type: "string",
-              description: "Message content to send",
-            },
+            server: { type: "string", description: 'Server name or ID (optional if bot is only in one server)' },
+            channel: { type: "string", description: 'Channel name (e.g., "general") or ID' },
+            message: { type: "string", minLength: 1, maxLength: 2000, description: "Message content to send" },
+            replyTo: { type: "string", description: "Message ID in the same channel to reply to" },
           },
           required: ["channel", "message"],
         },
       },
       {
         name: "read-messages",
-        description: "Read recent messages with IDs, links, embeds, attachments, reactions, and reply references (newest first)",
+        description: "Read recent messages with IDs, links, embeds, attachments, reactions, and reply references (newest first). Page with before/after; filter by author or drop system rows.",
         inputSchema: {
           type: "object",
           properties: {
-            server: {
-              type: "string",
-              description: 'Server name or ID (optional if bot is only in one server)',
-            },
-            channel: {
-              type: "string",
-              description: 'Channel name (e.g., "general") or ID',
-            },
-            limit: {
-              type: "integer",
-              minimum: 1,
-              maximum: 100,
-              description: "Number of messages to fetch (max 100)",
-              default: 50,
-            },
+            server: { type: "string", description: 'Server name or ID (optional if bot is only in one server)' },
+            channel: { type: "string", description: 'Channel name (e.g., "general") or ID' },
+            limit: { type: "integer", minimum: 1, maximum: 100, default: 50, description: "Number of messages to fetch (max 100)" },
+            before: { type: "string", description: "Only messages older than this message ID (paging)" },
+            after: { type: "string", description: "Only messages newer than this message ID (not with before)" },
+            author: { type: "string", description: "Keep only messages by this user ID, tag, username or display name (applied after the fetch)" },
+            excludeSystem: { type: "boolean", default: false, description: "Drop system rows such as pin and join notices" },
           },
           required: ["channel"],
         },
@@ -401,19 +365,24 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: "send-embed",
-        description: "Send a rich embed message to a Discord channel",
+        description: "Send a rich embed message to a Discord channel, optionally with text above it or as a reply",
         inputSchema: {
           type: "object",
           properties: {
             server: { type: "string", description: "Server name or ID" },
             channel: { type: "string", description: "Channel name or ID" },
-            title: { type: "string", description: "Embed title" },
-            description: { type: "string", description: "Embed body (supports markdown)" },
-            color: { type: "string", description: "Hex color (e.g. #E8A33D)" },
-            fields: { type: "array", items: { type: "object", properties: { name: { type: "string" }, value: { type: "string" }, inline: { type: "boolean" } }, required: ["name", "value"] }, description: "Embed fields" },
-            footer: { type: "string", description: "Footer text" },
-            thumbnail: { type: "string", description: "Thumbnail URL" },
-            image: { type: "string", description: "Large image URL" },
+            content: { type: "string", minLength: 1, maxLength: 2000, description: "Plain text shown above the embed" },
+            replyTo: { type: "string", description: "Message ID in the same channel to reply to" },
+            title: { type: "string", minLength: 1, maxLength: 256, description: "Embed title" },
+            description: { type: "string", minLength: 1, maxLength: 4096, description: "Embed body (supports markdown)" },
+            color: { type: "string", pattern: "^#?[0-9a-fA-F]{6}$", description: "Hex color (e.g. #E8A33D)" },
+            fields: { type: "array", maxItems: 25, items: { type: "object", properties: {
+              name: { type: "string", minLength: 1, maxLength: 256 },
+              value: { type: "string", minLength: 1, maxLength: 1024 }, inline: { type: "boolean" },
+            }, required: ["name", "value"] }, description: "Embed fields" },
+            footer: { type: "string", minLength: 1, maxLength: 2048, description: "Footer text" },
+            thumbnail: { type: "string", format: "uri", description: "Thumbnail URL" },
+            image: { type: "string", format: "uri", description: "Large image URL" },
           },
           required: ["channel"],
         },
@@ -566,6 +535,29 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         description: "List server members with their roles",
         inputSchema: { type: "object", properties: { server: { type: "string" }, limit: { type: "number", description: "Max members (default 50, max 100)" } } },
       },
+      {
+        name: "get-message",
+        description: "Fetch one message by link, or by channel and message ID, with its embeds, attachments, reactions and reply preview",
+        inputSchema: {
+          type: "object",
+          properties: {
+            url: { type: "string", format: "uri", description: "Discord message link (https://discord.com/channels/<server>/<channel>/<message>)" },
+            server: { type: "string", description: "Server name or ID (ignored when url is given)" },
+            channel: { type: "string", description: "Channel name or ID (ignored when url is given)" },
+            messageId: { type: "string", description: "Message ID (with channel)" },
+          },
+        },
+      },
+      {
+        name: "list-pins",
+        description: "List every pinned message in a channel, newest first, in the same shape as read-messages",
+        inputSchema: { type: "object", properties: { server: { type: "string" }, channel: { type: "string" } }, required: ["channel"] },
+      },
+      {
+        name: "get-channel-info",
+        description: "Channel settings: topic, category, slowmode, pin count, effective @everyone permissions and permission overwrites",
+        inputSchema: { type: "object", properties: { server: { type: "string" }, channel: { type: "string" } }, required: ["channel"] },
+      },
     ],
   };
 });
@@ -577,20 +569,23 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   try {
     switch (name) {
       case "send-message": {
-        const { channel: channelIdentifier, message } = SendMessageSchema.parse(args);
-        const channel = await findChannel(channelIdentifier);
-        
-        const sent = await channel.send(message);
-        return {
-          content: [{
-            type: "text",
-            text: `Message sent successfully to #${channel.name} in ${channel.guild.name}. Message ID: ${sent.id}`,
-          }],
-        };
+        return await sendMessage(args, findChannel);
       }
 
       case "read-messages": {
         return await readMessages(args, findChannel);
+      }
+
+      case "get-message": {
+        return await getMessage(args, findChannel);
+      }
+
+      case "list-pins": {
+        return await listPins(args, findChannel);
+      }
+
+      case "get-channel-info": {
+        return await getChannelInfo(args, findChannel);
       }
 
       case "create-category": {
@@ -681,20 +676,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case "send-embed": {
-        const { server: srv, channel: chId, title, description, color, fields, footer, thumbnail, image } = SendEmbedSchema.parse(args);
-        const channel = await findChannel(chId, srv);
-        const embed: any = {};
-        if (title) embed.title = title;
-        if (description) embed.description = description;
-        if (color) embed.color = parseInt(color.replace('#', ''), 16);
-        if (fields) embed.fields = fields;
-        if (footer) embed.footer = { text: footer };
-        if (thumbnail) embed.thumbnail = { url: thumbnail };
-        if (image) embed.image = { url: image };
-        const sent = await channel.send({ embeds: [embed] });
-        return {
-          content: [{ type: "text", text: `Embed sent to #${channel.name}. Message ID: ${sent.id}` }],
-        };
+        return await sendEmbed(args, findChannel);
       }
 
       case "add-reaction": {

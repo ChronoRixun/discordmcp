@@ -1,11 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Collection, EmbedBuilder } from 'discord.js';
-import { readMessages } from '../build/read-messages.js';
+import { readMessages, getMessage, listPins, parseMessageUrl } from '../build/read-messages.js';
 
 function message(overrides = {}) {
   return {
-    id: '1551098866785587201', url: 'https://discord.com/channels/123/456/1551098866785587201',
+    id: '1551098866785587201', url: 'https://discord.com/channels/123/456/1551098866785587201', member: null,
     author: { tag: 'Reader#1234', id: '789', bot: false },
     content: 'Hello', createdAt: new Date('2026-09-20T12:00:00Z'),
     editedAt: null, type: 0, pinned: false, embeds: [],
@@ -114,4 +114,110 @@ test('lookup and history permission failures remain visible', async () => {
   const { channel } = fixture();
   channel.messages.fetch = async () => { throw new Error('Missing Access'); };
   await assert.rejects(readMessages({ channel: 'welcome' }, async () => channel), /Missing Access/);
+});
+
+// --- paging, filters, get-message, list-pins ---
+
+test('before/after reach the fetch and an ascending after-page comes back newest first', async () => {
+  const older = message({ id: '10000000000000000' }), newer = message({ id: '20000000000000000' });
+  const { data, calls } = await read([older, newer], { channel: 'welcome', after: '99999999999999999' });
+  assert.deepEqual(calls, [{ limit: 50, cache: false, after: '99999999999999999' }]);
+  assert.deepEqual(data.map(m => m.id), ['20000000000000000', '10000000000000000']);
+  const paged = await read([], { channel: 'welcome', before: '99999999999999999', limit: 10 });
+  assert.deepEqual(paged.calls, [{ limit: 10, cache: false, before: '99999999999999999' }]);
+});
+
+test('author filter matches id, tag, username or display name case-insensitively', async () => {
+  const chrono = message({ id: '30000000000000000', author: { tag: 'chrono#0001', id: '42', bot: false, username: 'chrono' }, member: { displayName: 'CR' } });
+  const other = message({ id: '20000000000000000', author: { tag: 'Other#9', id: '43', bot: false, username: 'other' } });
+  for (const author of ['42', 'CHRONO#0001', 'Chrono', 'cr']) {
+    const { data } = await read([chrono, other], { channel: 'welcome', author });
+    assert.deepEqual(data.map(m => m.id), ['30000000000000000'], author);
+  }
+});
+
+test('excludeSystem drops pin notices but keeps posts and replies', async () => {
+  const pinNotice = message({ id: '30000000000000000', type: 6 });
+  const reply = message({ id: '20000000000000000', type: 19 });
+  const post = message({ id: '10000000000000000', type: 0 });
+  const { data } = await read([pinNotice, reply, post], { channel: 'welcome', excludeSystem: true });
+  assert.deepEqual(data.map(m => m.id), ['20000000000000000', '10000000000000000']);
+  const all = await read([pinNotice, reply, post]);
+  assert.equal(all.data.length, 3);
+});
+
+test('before with after, and malformed ids, fail before resolving a channel', async () => {
+  for (const args of [
+    { channel: 'welcome', before: '99999999999999999', after: '99999999999999998' },
+    { channel: 'welcome', before: 'abc' },
+    { channel: 'welcome', after: '12' },
+  ]) {
+    await assert.rejects(readMessages(args, async () => assert.fail('must validate first')));
+  }
+});
+
+function single(target, replyTarget, { failReplyFetch = false } = {}) {
+  const fetches = [];
+  const channel = {
+    id: '45600000000000000', name: 'welcome', guild: { id: '12300000000000000', name: 'Community' },
+    messages: {
+      fetch: async options => {
+        fetches.push(options);
+        if (options.message === target.id) return target;
+        if (failReplyFetch) throw new Error('Unknown Message');
+        if (replyTarget && options.message === replyTarget.id) return replyTarget;
+        throw new Error('Unknown Message');
+      },
+      fetchPinned: async () => new Collection(),
+    },
+  };
+  return { channel, fetches };
+}
+
+test('get-message by link resolves the channel from the link and previews a same-channel reply', async () => {
+  const parent = message({ id: '10000000000000000', content: 'Parent' });
+  const target = message({ id: '20000000000000000', reference: { messageId: '10000000000000000', channelId: '45600000000000000', guildId: '12300000000000000' } });
+  const { channel, fetches } = single(target, parent);
+  const resolved = [];
+  const result = await getMessage({ url: 'https://discord.com/channels/12300000000000000/45600000000000000/20000000000000000' }, async (...args) => {
+    resolved.push(args); return channel;
+  });
+  const data = JSON.parse(result.content[0].text);
+  assert.deepEqual(resolved, [['45600000000000000', '12300000000000000']]);
+  assert.deepEqual(fetches, [{ message: '20000000000000000', force: true }, { message: '10000000000000000', force: true }]);
+  assert.equal(data.id, '20000000000000000');
+  assert.equal(data.replyPreview.content, 'Parent');
+});
+
+test('get-message by channel + id works, and a missing reply target yields a null preview', async () => {
+  const target = message({ id: '20000000000000000', reference: { messageId: '10000000000000000', channelId: '45600000000000000', guildId: '12300000000000000' } });
+  const { channel } = single(target, undefined, { failReplyFetch: true });
+  const resolved = [];
+  const result = await getMessage({ server: 'community', channel: 'welcome', messageId: '20000000000000000' }, async (...args) => {
+    resolved.push(args); return channel;
+  });
+  assert.deepEqual(resolved, [['welcome', 'community']]);
+  assert.equal(JSON.parse(result.content[0].text).replyPreview, null);
+});
+
+test('get-message needs a link or channel + id, and rejects non-message links', async () => {
+  for (const args of [{}, { channel: 'welcome' }, { messageId: '20000000000000000' },
+    { url: 'https://example.com/channels/12300000000000000/45600000000000000/20000000000000000' }, { url: 'https://discord.com/channels/12300000000000000/45600000000000000' }]) {
+    await assert.rejects(getMessage(args, async () => assert.fail('must validate first')));
+  }
+  assert.deepEqual(parseMessageUrl('https://canary.discord.com/channels/12300000000000000/45600000000000000/20000000000000000/'),
+    { serverId: '12300000000000000', channelId: '45600000000000000', messageId: '20000000000000000' });
+});
+
+test('list-pins serializes pinned messages newest first', async () => {
+  const first = message({ id: '10000000000000000', pinned: true }), second = message({ id: '20000000000000000', pinned: true });
+  const channel = {
+    id: '45600000000000000', name: 'welcome', guild: { id: '12300000000000000', name: 'Community' },
+    messages: { fetchPinned: async () => new Collection([[first.id, first], [second.id, second]]) },
+  };
+  const result = await listPins({ channel: 'welcome' }, async () => channel);
+  const data = JSON.parse(result.content[0].text);
+  assert.deepEqual(data.map(m => m.id), ['20000000000000000', '10000000000000000']);
+  assert.equal(data[0].channel, '#welcome');
+  assert.equal(data[0].replyPreview, undefined);
 });
