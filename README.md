@@ -14,6 +14,7 @@ A fork of [v-3/discordmcp](https://github.com/v-3/discordmcp) with **51 tools** 
 - **Channel types:** text, voice, forum (with tags) and announcement channels, and `edit-channel` to rename, retopic or move any of them.
 - **Community onboarding:** read and configure the native onboarding prompts (roles and channels per option, default channels, mode) and the welcome screen on a Community server.
 - **Community management:** categories, pins, invites, member listing, kick and ban.
+- **Several bots, one server process:** give each community a bot of its own (its own name, avatar and revocable token) with `DISCORD_TOKENS`; every tool finds the server across all of them, and `list-servers` shows which bot serves which server.
 - **Validated before sending:** permission names, colours, IDs, dates and rule shapes are checked locally, so a bad request fails with a clear message instead of a Discord error.
 - **Tested behavior:** 80 offline regression tests cover every module: reads, paging and filters, lookups, channel inspection, sending, embed editing, roles, channel permissions, AutoMod, events and timeouts.
 
@@ -47,6 +48,7 @@ A fork of [v-3/discordmcp](https://github.com/v-3/discordmcp) with **51 tools** 
 | `set-slowmode` | Set slowmode delay on a channel (0 to disable) |
 | `delete-channel` | Delete a channel |
 | **Server** | |
+| `list-servers` | Every server the configured bots are in, with the bot (and application ID) that serves each one |
 | `get-server-info` | Member count, boosts, creation date, channels, roles, verification level and enabled features |
 | `create-invite` | Create a shareable invite link with optional expiry and use limit |
 | `list-members` | List server members with their roles |
@@ -304,7 +306,7 @@ In Codex's MCP server settings, add a stdio server named `discord`:
 
 - **Command:** `node`
 - **Arguments:** the absolute path to `build/index.js` in this checkout
-- **Environment:** `DISCORD_TOKEN` set to your bot token
+- **Environment:** `DISCORD_TOKEN` set to your bot token. For more than one bot, `DISCORD_TOKENS` with the tokens separated by commas (or `DISCORD_TOKEN_<name>`, one per variable); each token becomes its own bot, every tool searches all of them for the server you name, and when two bots share a server the first token listed answers
 
 Equivalent `~/.codex/config.toml` entry on Windows:
 

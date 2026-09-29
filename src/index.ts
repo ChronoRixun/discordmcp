@@ -5,7 +5,7 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
-import { Client, GatewayIntentBits, TextChannel, ChannelType, PermissionFlagsBits, GuildMember, type GuildBasedChannel } from 'discord.js';
+import { TextChannel, ChannelType, PermissionFlagsBits, GuildMember, type GuildBasedChannel } from 'discord.js';
 import { z } from 'zod';
 import { readMessages, getMessage, listPins } from './read-messages.js';
 import { editEmbed } from './edit-embed.js';
@@ -21,55 +21,17 @@ import { getOnboarding, setOnboarding, getWelcomeScreen, setWelcomeScreen, editC
 import { getRulesScreening, setRulesScreening } from './screening.js';
 import { findMember } from './member-lookup.js';
 import { findRole, type Resolvers } from './shared.js';
+import { BotPool, tokensFromEnv } from './bots.js';
 
 // Load environment variables
 dotenv.config();
 
-// Discord client setup
-const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.GuildMembers,
-    GatewayIntentBits.MessageContent,
-  ],
-});
+// Every bot token in the environment becomes a client of its own; guild lookups search all of them (bots.ts).
+let bots: BotPool;
 
-// Helper function to find a guild by name or ID
+// Helper function to find a guild by name or ID, across every bot
 async function findGuild(guildIdentifier?: string) {
-  if (!guildIdentifier) {
-    // If no guild specified and bot is only in one guild, use that
-    if (client.guilds.cache.size === 1) {
-      return client.guilds.cache.first()!;
-    }
-    // List available guilds
-    const guildList = Array.from(client.guilds.cache.values())
-      .map(g => `"${g.name}"`).join(', ');
-    throw new Error(`Bot is in multiple servers. Please specify server name or ID. Available servers: ${guildList}`);
-  }
-
-  // Try to fetch by ID first
-  try {
-    const guild = await client.guilds.fetch(guildIdentifier);
-    if (guild) return guild;
-  } catch {
-    // If ID fetch fails, search by name
-    const guilds = client.guilds.cache.filter(
-      g => g.name.toLowerCase() === guildIdentifier.toLowerCase()
-    );
-    
-    if (guilds.size === 0) {
-      const availableGuilds = Array.from(client.guilds.cache.values())
-        .map(g => `"${g.name}"`).join(', ');
-      throw new Error(`Server "${guildIdentifier}" not found. Available servers: ${availableGuilds}`);
-    }
-    if (guilds.size > 1) {
-      const guildList = guilds.map(g => `${g.name} (ID: ${g.id})`).join(', ');
-      throw new Error(`Multiple servers found with name "${guildIdentifier}": ${guildList}. Please specify the server ID.`);
-    }
-    return guilds.first()!;
-  }
-  throw new Error(`Server "${guildIdentifier}" not found`);
+  return bots.findGuild(guildIdentifier);
 }
 
 // Helper function to find a channel by name or ID within a specific guild
@@ -78,7 +40,7 @@ async function findChannel(channelIdentifier: string, guildIdentifier?: string):
   
   // First try to fetch by ID
   try {
-    const channel = await client.channels.fetch(channelIdentifier);
+    const channel = await guild.client.channels.fetch(channelIdentifier);
     if (channel instanceof TextChannel && channel.guild.id === guild.id) {
       return channel;
     }
@@ -515,6 +477,11 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         name: "get-server-info",
         description: "Get server information: member count, boosts, creation date, roles",
         inputSchema: { type: "object", properties: { server: { type: "string" } } },
+      },
+      {
+        name: "list-servers",
+        description: "List every server the configured bots are in, with the bot that serves each one",
+        inputSchema: { type: "object", properties: {} },
       },
       {
         name: "set-slowmode",
@@ -981,6 +948,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return { content: [{ type: "text", text: `Invite created: https://discord.gg/${invite.code} (expires: ${maxAge ? `${maxAge}s` : 'never'}, uses: ${maxUses || 'unlimited'})` }] };
       }
 
+      case "list-servers": {
+        const lines = bots.clients.map(c => {
+          const guilds = Array.from(c.guilds.cache.values()).map(g => `  - ${g.name} (${g.id}, ${g.memberCount} members)`);
+          return [`${c.user?.tag ?? 'unknown bot'} (application ${c.user?.id ?? '?'}): ${guilds.length} server(s)`, ...guilds].join('\n');
+        });
+        return { content: [{ type: "text", text: lines.join('\n') || 'No bots' }] };
+      }
+
       case "get-server-info": {
         const { server: srv } = GetServerInfoSchema.parse(args);
         const guild = await findGuild(srv);
@@ -1138,22 +1113,16 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
 });
 
-// Discord client login and error handling
-client.once('ready', () => {
-  console.error('Discord bot is ready!');
-});
-
 // Start the server
 async function main() {
-  // Check for Discord token
-  const token = process.env.DISCORD_TOKEN;
-  if (!token) {
-    throw new Error('DISCORD_TOKEN environment variable is not set');
+  const tokens = tokensFromEnv();
+  if (tokens.length === 0) {
+    throw new Error('No Discord bot token: set DISCORD_TOKEN, DISCORD_TOKENS (comma-separated) or DISCORD_TOKEN_<name>');
   }
-  
+
   try {
-    // Login to Discord
-    await client.login(token);
+    // Log every bot in (one bad token is reported and skipped)
+    bots = await BotPool.login(tokens);
 
     // Start MCP server
     const transport = new StdioServerTransport();
