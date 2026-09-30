@@ -5,7 +5,12 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
-import { TextChannel, ChannelType, PermissionFlagsBits, GuildMember, type GuildBasedChannel } from 'discord.js';
+import { TextChannel, NewsChannel, ChannelType, PermissionFlagsBits, GuildMember, type GuildBasedChannel } from 'discord.js';
+
+// A channel the tools can post to: a text channel or an announcement channel (discord.js's NewsChannel; same
+// send / messages / pins / topic / permission API).
+type PostableChannel = TextChannel | NewsChannel;
+const isPostable = (c: unknown): c is PostableChannel => c instanceof TextChannel || c instanceof NewsChannel;
 import { z } from 'zod';
 import { readMessages, getMessage, listPins } from './read-messages.js';
 import { editEmbed } from './edit-embed.js';
@@ -35,27 +40,27 @@ async function findGuild(guildIdentifier?: string) {
 }
 
 // Helper function to find a channel by name or ID within a specific guild
-async function findChannel(channelIdentifier: string, guildIdentifier?: string): Promise<TextChannel> {
+async function findChannel(channelIdentifier: string, guildIdentifier?: string): Promise<PostableChannel> {
   const guild = await findGuild(guildIdentifier);
-  
+
   // First try to fetch by ID
   try {
     const channel = await guild.client.channels.fetch(channelIdentifier);
-    if (channel instanceof TextChannel && channel.guild.id === guild.id) {
+    if (isPostable(channel) && channel.guild.id === guild.id) {
       return channel;
     }
   } catch {
     // If fetching by ID fails, search by name in the specified guild
     const channels = guild.channels.cache.filter(
-      (channel): channel is TextChannel =>
-        channel instanceof TextChannel &&
+      (channel): channel is PostableChannel =>
+        isPostable(channel) &&
         (channel.name.toLowerCase() === channelIdentifier.toLowerCase() ||
          channel.name.toLowerCase() === channelIdentifier.toLowerCase().replace('#', ''))
     );
 
     if (channels.size === 0) {
       const availableChannels = guild.channels.cache
-        .filter((c): c is TextChannel => c instanceof TextChannel)
+        .filter(isPostable)
         .map(c => `"#${c.name}"`).join(', ');
       throw new Error(`Channel "${channelIdentifier}" not found in server "${guild.name}". Available channels: ${availableChannels}`);
     }
@@ -65,7 +70,7 @@ async function findChannel(channelIdentifier: string, guildIdentifier?: string):
     }
     return channels.first()!;
   }
-  throw new Error(`Channel "${channelIdentifier}" is not a text channel or not found in server "${guild.name}"`);
+  throw new Error(`Channel "${channelIdentifier}" is not a text or announcement channel, or not found in server "${guild.name}"`);
 }
 
 // Any non-thread guild channel (text, voice, forum, announcement, stage, category) by ID or name.
@@ -933,11 +938,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case "create-invite": {
         const { server: srv, channel: chId, maxAge, maxUses } = CreateInviteSchema.parse(args);
         const guild = await findGuild(srv);
-        let channel: TextChannel;
+        let channel: PostableChannel;
         if (chId) {
           channel = await findChannel(chId, srv);
         } else {
-          const first = guild.channels.cache.find((c): c is TextChannel => c instanceof TextChannel);
+          const first = guild.channels.cache.find(isPostable);
           if (!first) throw new Error("No text channel found for invite");
           channel = first;
         }
