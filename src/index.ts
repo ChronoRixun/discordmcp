@@ -5,12 +5,8 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
-import { TextChannel, NewsChannel, ChannelType, PermissionFlagsBits, GuildMember, type GuildBasedChannel } from 'discord.js';
-
-// A channel the tools can post to: a text channel or an announcement channel (discord.js's NewsChannel; same
-// send / messages / pins / topic / permission API).
-type PostableChannel = TextChannel | NewsChannel;
-const isPostable = (c: unknown): c is PostableChannel => c instanceof TextChannel || c instanceof NewsChannel;
+import { ChannelType, PermissionFlagsBits, GuildMember, type GuildBasedChannel } from 'discord.js';
+import { isPostable, type PostableChannel } from './shared.js';
 import { z } from 'zod';
 import { readMessages, getMessage, listPins } from './read-messages.js';
 import { editEmbed } from './edit-embed.js';

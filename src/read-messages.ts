@@ -1,4 +1,5 @@
-import { MessageType, type Message, type TextChannel } from 'discord.js';
+import { MessageType, type Message } from 'discord.js';
+import type { PostableChannel } from './shared.js';
 import { z } from 'zod';
 
 export const snowflake = z.string().regex(/^\d{17,20}$/, 'Expected a Discord ID');
@@ -27,7 +28,7 @@ export const ListPinsSchema = z.object({
   channel: z.string(),
 });
 
-type ChannelResolver = (channel: string, server?: string) => Promise<TextChannel>;
+type ChannelResolver = (channel: string, server?: string) => Promise<PostableChannel>;
 
 /** Snowflakes are time-ordered, so a numeric compare is a chronological compare. */
 export function newestFirst(a: { id: string }, b: { id: string }): number {
@@ -68,7 +69,7 @@ function json(value: unknown) {
 }
 
 /** Explicit projection: never serialize the Discord client or download attachments. */
-export function serializeMessage(message: Message, channel: TextChannel) {
+export function serializeMessage(message: Message, channel: PostableChannel) {
   const reference = message.reference;
   return {
     id: message.id,

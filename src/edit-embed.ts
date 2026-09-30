@@ -1,4 +1,5 @@
-import { EmbedBuilder, type APIEmbed, type TextChannel } from 'discord.js';
+import { EmbedBuilder, type APIEmbed } from 'discord.js';
+import type { PostableChannel } from './shared.js';
 import { z } from 'zod';
 import { clearable } from './shared.js';
 
@@ -47,7 +48,7 @@ export function patchEmbed(existing: APIEmbed, patch: Patch): APIEmbed {
 
 export async function editEmbed(
   args: unknown,
-  findChannel: (channel: string, server?: string) => Promise<TextChannel>,
+  findChannel: (channel: string, server?: string) => Promise<PostableChannel>,
 ) {
   const patch = EditEmbedSchema.parse(args);
   const channel = await findChannel(patch.channel, patch.server);

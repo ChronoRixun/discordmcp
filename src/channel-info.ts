@@ -1,4 +1,5 @@
-import { OverwriteType, PermissionFlagsBits, type TextChannel } from 'discord.js';
+import { OverwriteType, PermissionFlagsBits } from 'discord.js';
+import type { PostableChannel } from './shared.js';
 import { z } from 'zod';
 
 export const GetChannelInfoSchema = z.object({
@@ -6,7 +7,7 @@ export const GetChannelInfoSchema = z.object({
   channel: z.string(),
 });
 
-type ChannelResolver = (channel: string, server?: string) => Promise<TextChannel>;
+type ChannelResolver = (channel: string, server?: string) => Promise<PostableChannel>;
 
 /** Settings, pins and the effective @everyone permissions for one text channel. */
 export async function getChannelInfo(args: unknown, findChannel: ChannelResolver) {

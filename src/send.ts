@@ -1,4 +1,5 @@
-import { EmbedBuilder, type APIEmbed, type TextChannel } from 'discord.js';
+import { EmbedBuilder, type APIEmbed } from 'discord.js';
+import type { PostableChannel } from './shared.js';
 import { z } from 'zod';
 import { snowflake } from './read-messages.js';
 
@@ -30,7 +31,7 @@ export const SendEmbedSchema = z.object({
 }).refine(value => embedProperties.some(key => value[key] !== undefined),
   'Provide at least one embed property');
 
-type ChannelResolver = (channel: string, server?: string) => Promise<TextChannel>;
+type ChannelResolver = (channel: string, server?: string) => Promise<PostableChannel>;
 type EmbedInput = Pick<z.infer<typeof SendEmbedSchema>, typeof embedProperties[number]>;
 
 /** Builds and validates the embed; omitted properties are left out entirely. */

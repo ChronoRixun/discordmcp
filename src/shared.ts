@@ -1,10 +1,15 @@
-import { PermissionFlagsBits, type Guild, type GuildBasedChannel, type GuildMember, type PermissionsString, type Role, type TextChannel } from 'discord.js';
+import { PermissionFlagsBits, TextChannel, NewsChannel, type Guild, type GuildBasedChannel, type GuildMember, type PermissionsString, type Role } from 'discord.js';
+
+// A channel the tools can post to: a text channel or an announcement channel (discord.js's NewsChannel; same
+// send / messages / pins / topic / permission API).
+export type PostableChannel = TextChannel | NewsChannel;
+export const isPostable = (c: unknown): c is PostableChannel => c instanceof TextChannel || c instanceof NewsChannel;
 import { z } from 'zod';
 
 /** Lookups owned by index.ts (they close over the Discord client). */
 export type Resolvers = {
   findGuild: (server?: string) => Promise<Guild>;
-  findChannel: (channel: string, server?: string) => Promise<TextChannel>;
+  findChannel: (channel: string, server?: string) => Promise<PostableChannel>;
   findGuildChannel: (channel: string, server?: string) => Promise<GuildBasedChannel>;
   findMember: (guild: Guild, user: string) => Promise<GuildMember>;
 };
