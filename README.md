@@ -1,6 +1,6 @@
 # Discord MCP Server (Extended)
 
-A fork of [v-3/discordmcp](https://github.com/v-3/discordmcp) with **51 tools** for Discord messaging and community management through Codex, Claude, and other MCP clients. Runs locally over stdio using your Discord bot.
+A fork of [v-3/discordmcp](https://github.com/v-3/discordmcp) with **55 tools** for Discord messaging and community management through Codex, Claude, and other MCP clients. Runs locally over stdio using your Discord bot.
 
 ## Highlights
 
@@ -14,9 +14,10 @@ A fork of [v-3/discordmcp](https://github.com/v-3/discordmcp) with **51 tools** 
 - **Channel types:** text, voice, forum (with tags) and announcement channels, and `edit-channel` to rename, retopic or move any of them.
 - **Community onboarding:** read and configure the native onboarding prompts (roles and channels per option, default channels, mode) and the welcome screen on a Community server.
 - **Community management:** categories, pins, invites, member listing, kick and ban.
+- **Webhooks:** create a channel webhook with a URL ready for GitHub or Slack (optionally written to a local file instead of the chat), list them without exposing URLs, and delete them.
 - **Several bots, one server process:** give each community a bot of its own (its own name, avatar and revocable token) with `DISCORD_TOKENS`; every tool finds the server across all of them, and `list-servers` shows which bot serves which server.
 - **Validated before sending:** permission names, colours, IDs, dates and rule shapes are checked locally, so a bad request fails with a clear message instead of a Discord error.
-- **Tested behavior:** 80 offline regression tests cover every module: reads, paging and filters, lookups, channel inspection, sending, embed editing, roles, channel permissions, AutoMod, events and timeouts.
+- **Tested behavior:** 91 offline regression tests cover every module: reads, paging and filters, lookups, channel inspection, sending, embed editing, roles, channel permissions, webhooks, AutoMod, events and timeouts.
 
 ## Tools
 
@@ -47,6 +48,10 @@ A fork of [v-3/discordmcp](https://github.com/v-3/discordmcp) with **51 tools** 
 | `unlock-channel` | Clear the `@everyone` send/reaction overrides set by locking |
 | `set-slowmode` | Set slowmode delay on a channel (0 to disable) |
 | `delete-channel` | Delete a channel |
+| **Webhooks** | |
+| `create-webhook` | Create a webhook in a channel; `format: github` or `slack` returns a URL those services can post to; `urlFile` keeps the URL out of the result |
+| `list-webhooks` | A server's or channel's webhooks: name, channel, type, creator, application (never URLs) |
+| `delete-webhook` | Delete a webhook by ID or name |
 | **Server** | |
 | `list-servers` | Every server the configured bots are in, with the bot (and application ID) that serves each one |
 | `get-server-info` | Member count, boosts, creation date, channels, roles, verification level and enabled features |
@@ -223,6 +228,24 @@ to inheriting from roles. A permission may appear in only one of the three lists
 `remove-channel-overwrite` deletes the whole overwrite. `get-channel-info` shows the
 result.
 
+## Webhooks
+
+`create-webhook` creates an incoming webhook in a text, announcement, forum or voice
+channel. Discord accepts other services' payloads when their name is appended to the
+URL, so `format: github` returns a URL ending in `/github` that can be pasted into a
+GitHub repository or organisation webhook (content type `application/json`; Discord
+ignores event types it does not render). `format: slack` does the same for
+Slack-compatible senders. Webhooks post regardless of channel overwrites, so a
+`lock-channel`ed channel makes a read-only feed.
+
+The URL is the webhook's only credential: anyone holding it can post to the channel.
+Pass `urlFile` (an absolute path that does not exist yet) to have it written there
+instead of returned, then hand the file to the next tool, for example
+`gh api repos/OWNER/REPO/hooks -f config[url]="$(cat FILE)" ...`. The file is claimed
+before the webhook is created and removed again if Discord refuses. `list-webhooks`
+never returns URLs. `delete-webhook` takes an ID or a name; `channel` narrows a name
+that webhooks in several channels share. The bot needs Manage Webhooks.
+
 ## AutoMod, events and timeouts
 
 `create-automod-rule` creates a native Discord AutoMod rule. `trigger` is one of
@@ -261,9 +284,9 @@ moderate instead of failing later.
 
 ## Testing
 
-Run `npm test` to compile and run all 80 offline regression tests (reading, paging
+Run `npm test` to compile and run all 91 offline regression tests (reading, paging
 and filters, single-message and pin lookups, channel info, sending, embed editing,
-roles, channel permissions, AutoMod, events, timeouts, onboarding, welcome screen and
+roles, channel permissions, webhooks, AutoMod, events, timeouts, onboarding, welcome screen and
 channel edits). No bot token or Discord connection is needed. Tests use Node's built-in test runner.
 
 ```bash
@@ -405,6 +428,7 @@ lists the servers it can see.
 - Channel and server access follows Discord's permission model. Grant only the permissions needed for the tools you use.
 - `lock-channel` changes only the `@everyone` overwrite; other role/member allows can still permit posting. `unlock-channel` clears those two overrides rather than restoring a saved permissions snapshot.
 - `create-role`, `edit-role` and `set-channel-permissions` can grant powerful permissions, including `Administrator`. Approve those calls deliberately; the server validates names, not intent.
+- Webhook URLs are credentials. Prefer `create-webhook`'s `urlFile` over returning the URL into a chat transcript, and `delete-webhook` one that leaks.
 - AutoMod `timeoutMinutes` acts without a human in the loop. Leave it off and alert a mod channel unless automatic timeouts are wanted.
 
 ## Fork history
@@ -418,6 +442,8 @@ lists the servers it can see.
 - 44 tools: in-place AutoMod and event updates, ambiguity checks for administration targets, filtered-page cursors, explicit unknown role counts, and timezone validation; 71 offline tests.
 - 49 tools: Community onboarding and welcome screen, and `edit-channel`; 76 offline tests.
 - 51 tools: Rules Screening read and write through the member-verification route; 80 offline tests.
+- 52 tools: several bots in one server process (`DISCORD_TOKENS` / `DISCORD_TOKEN_<name>`) with `list-servers`; posting to announcement channels.
+- 55 tools: webhooks (create with GitHub/Slack URLs and an optional URL file, list, delete); 91 offline tests.
 - Robustness: the string `"null"` accepted as a clear, member lookup through REST search, bounded member fetches.
 
 ## Credits

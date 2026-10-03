@@ -20,6 +20,7 @@ import { editAutomodRule, editEvent, lifecycleTools } from './lifecycle.js';
 import { timeoutMember, removeTimeout } from './moderation.js';
 import { getOnboarding, setOnboarding, getWelcomeScreen, setWelcomeScreen, editChannel } from './community.js';
 import { getRulesScreening, setRulesScreening } from './screening.js';
+import { createWebhook, listWebhooks, deleteWebhook } from './webhooks.js';
 import { findMember } from './member-lookup.js';
 import { findRole, type Resolvers } from './shared.js';
 import { BotPool, tokensFromEnv } from './bots.js';
@@ -570,6 +571,32 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         inputSchema: { type: "object", properties: { server: { type: "string" }, channel: { type: "string" }, role: { type: "string" }, member: { type: "string" }, reason: { type: "string" } }, required: ["channel"] },
       },
       {
+        name: "create-webhook",
+        description: "Create an incoming webhook in a channel. format github appends /github so the URL works as a GitHub repository webhook (content type application/json); slack appends /slack. The URL is a credential: pass urlFile to write it to a new local file instead of returning it",
+        inputSchema: {
+          type: "object",
+          properties: {
+            server: { type: "string" }, channel: { type: "string", description: "Text, announcement, forum or voice channel name or ID" },
+            name: { type: "string", minLength: 1, maxLength: 80, description: "Name shown on its posts" },
+            avatar: { type: "string", description: "Image URL for its avatar" },
+            format: { type: "string", enum: ["discord", "github", "slack"], default: "discord" },
+            urlFile: { type: "string", description: "Absolute path of a file that does not exist yet; receives the URL instead of the tool result" },
+            reason: { type: "string" },
+          },
+          required: ["channel", "name"],
+        },
+      },
+      {
+        name: "list-webhooks",
+        description: "List a server's webhooks (or one channel's) as JSON: name, channel, type, creator, application; never their URLs",
+        inputSchema: { type: "object", properties: { server: { type: "string" }, channel: { type: "string" } } },
+      },
+      {
+        name: "delete-webhook",
+        description: "Delete a webhook by ID or name (channel narrows a shared name); anything posting to its URL stops working",
+        inputSchema: { type: "object", properties: { server: { type: "string" }, webhook: { type: "string" }, channel: { type: "string" }, reason: { type: "string" } }, required: ["webhook"] },
+      },
+      {
         name: "create-automod-rule",
         description: "Create a Discord AutoMod rule: keyword (words/regex), keyword_preset (profanity, sexual_content, slurs), spam, or mention_spam; actions block the message, alert a channel and/or time the member out",
         inputSchema: {
@@ -1058,6 +1085,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case "remove-channel-overwrite": {
         return await removeChannelOverwrite(args, resolvers);
       }
+
+      case "create-webhook": return await createWebhook(args, resolvers);
+      case "list-webhooks": return await listWebhooks(args, resolvers);
+      case "delete-webhook": return await deleteWebhook(args, resolvers);
 
       case "create-automod-rule": {
         return await createAutomodRule(args, resolvers);
