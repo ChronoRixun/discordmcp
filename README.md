@@ -1,10 +1,11 @@
 # Discord MCP Server (Extended)
 
-A fork of [v-3/discordmcp](https://github.com/v-3/discordmcp) with **55 tools** for Discord messaging and community management through Codex, Claude, and other MCP clients. Runs locally over stdio using your Discord bot.
+A fork of [v-3/discordmcp](https://github.com/v-3/discordmcp) with **56 tools** for Discord messaging and community management through Codex, Claude, and other MCP clients. Runs locally over stdio using your Discord bot.
 
 ## Highlights
 
 - **Rich message reading:** inspect embeds, attachment metadata, reactions, message links, reply references, and available thread metadata alongside message text. Page with `before`/`after`, filter by author, or drop system rows.
+- **Threads and forums:** address forum posts and other threads by name, ID or Discord link in `read-messages`, `get-message`, `list-pins`, `get-channel-info` and `send-message`; `list-threads` enumerates a channel's active and archived threads with tags, owner and flags.
 - **Single-message and pin lookups:** fetch one message by its Discord link, or list every pinned message in a channel.
 - **Channel inspection:** topic, category, slowmode, pins and the effective `@everyone` permissions, so a read-only info channel can be verified rather than assumed.
 - **Partial embed editing:** change one property while preserving omitted fields and other embeds; explicitly clear properties with `null`.
@@ -17,7 +18,7 @@ A fork of [v-3/discordmcp](https://github.com/v-3/discordmcp) with **55 tools** 
 - **Webhooks:** create a channel webhook with a URL ready for GitHub or Slack (optionally written to a local file instead of the chat), list them without exposing URLs, and delete them.
 - **Several bots, one server process:** give each community a bot of its own (its own name, avatar and revocable token) with `DISCORD_TOKENS`; every tool finds the server across all of them, and `list-servers` shows which bot serves which server.
 - **Validated before sending:** permission names, colours, IDs, dates and rule shapes are checked locally, so a bad request fails with a clear message instead of a Discord error.
-- **Tested behavior:** 91 offline regression tests cover every module: reads, paging and filters, lookups, channel inspection, sending, embed editing, roles, channel permissions, webhooks, AutoMod, events and timeouts.
+- **Tested behavior:** 112 offline regression tests cover every module: reads, paging and filters, thread and forum resolution, lookups, channel inspection, sending, embed editing, roles, channel permissions, webhooks, AutoMod, events and timeouts.
 
 ## Tools
 
@@ -28,6 +29,7 @@ A fork of [v-3/discordmcp](https://github.com/v-3/discordmcp) with **55 tools** 
 | `read-messages` | Read recent messages with IDs, embeds, attachments, reactions, and reply references (up to 100); page with `before`/`after`, filter by `author`, `excludeSystem` |
 | `get-message` | Fetch one message by Discord link, or by channel and message ID, with a reply preview |
 | `list-pins` | List every pinned message in a channel, newest first |
+| `list-threads` | Threads (forum posts and spun-off conversations) newest first: name, ID, parent, owner, created time, message count, archived/locked flags and forum tags; one channel's active + recently archived threads, or all active threads server-wide |
 | `send-embed` | Send a rich embed with title, description, color, fields, footer, images; optional text above it and reply target |
 | `edit-message` | Edit an existing message sent by the bot |
 | `edit-embed` | Update a selected bot embed while preserving omitted fields and other embeds |
@@ -93,13 +95,18 @@ name (case-insensitive). Names resolve through Discord's member search endpoint,
 combined with cached members. Ambiguous names and truncated searches require a user ID;
 API failures remain visible. Uncached global/display names may need an ID too.
 Tools that take a `role` or `channel` accept a name or an ID; channel names may
-carry a leading `#`. Duplicate role, rule and event names are rejected rather than
+carry a leading `#`. A `channel` may also be a Discord channel or message link,
+and it may be a thread: forum posts and spun-off conversations resolve by name
+(active and recently archived threads), ID or link. Duplicate role, rule and
+event names are rejected rather than
 silently selecting the first match. Prefer IDs for administration.
 
 ## Reading messages
 
 `read-messages` accepts `channel` (name or ID), optional `server` (name or ID),
-and an integer `limit` from 1 to 100 (default 50). The response remains a JSON
+and an integer `limit` from 1 to 100 (default 50). The channel may be a text or
+announcement channel, or a thread — a forum post or a spun-off conversation —
+by its name, ID or Discord link. The response remains a JSON
 array in the MCP text result, newest first, with the original `channel`, `server`,
 `author`, `content`, and `timestamp` fields preserved.
 
@@ -136,8 +143,31 @@ Each message also includes:
 
 Empty text does not imply an empty message: check `embeds` and `attachments`.
 Discord permissions and Message Content Intent still determine what data is
-available. Missing previews do not imply deleted messages. Reading thread
-history and downloading attachment contents are not part of this tool.
+available. Missing previews do not imply deleted messages. Downloading
+attachment contents is not part of this tool.
+
+## Threads and forum channels
+
+Forum channels hold posts (threads), not messages of their own. Reading a forum
+by name fails with a pointer to `list-threads`, which enumerates a forum, text
+or announcement channel's threads — active and recently archived public ones,
+newest first — with each thread's name, ID, link, parent channel, owner,
+created time, message count, archived/locked flags and applied forum tag names.
+Omit `channel` to list every active thread in the server instead.
+
+Once you know a post's name, the message tools take it from there:
+`read-messages`, `get-message`, `list-pins` and `get-channel-info` all accept a
+thread by name (case-insensitive exact match), ID or Discord link, searching
+active threads and recently archived public threads of the server's text,
+announcement and forum channels. An ambiguous name fails listing every
+candidate with its ID and parent channel; pass the ID or a link to pick one.
+`send-message`, `send-embed` and `add-reaction` work in threads the same way,
+and `edit-message`, `delete-message`, `pin-message` and `unpin-message` accept
+thread addresses too. Threads have no topic, overwrites, invites or slowmode of
+their own (they inherit from the parent), so those tools refuse a thread with
+an explanation. `get-channel-info` on a forum returns its post guidelines as
+`topic` and its `availableTags`; on a thread it returns the parent, flags,
+message count and applied tag names instead of overwrites.
 
 ## One message, pins and channel settings
 
@@ -153,7 +183,10 @@ shape as `read-messages` (without `replyPreview`).
 `get-channel-info` returns the channel's topic, category, slowmode, creation date,
 pinned message IDs, the effective `@everyone` permissions (`view`, `readHistory`,
 `send`, `react`) after overwrites, and each permission overwrite with its role or
-member name. Use it to confirm that an info channel is actually read-only.
+member name. Use it to confirm that an info channel is actually read-only. On a
+forum it also returns the post guidelines (`topic`) and the available post tags;
+on a thread it returns the parent channel, archived/locked flags, message count
+and applied tag names in place of overwrites.
 
 ## Sending
 
@@ -161,7 +194,8 @@ member name. Use it to confirm that an info channel is actually read-only.
 message ID in the same channel. A reply to a missing message fails instead of
 silently posting as a plain message. `send-embed` also accepts `content`, plain
 text shown above the embed, and requires at least one embed property. Both report
-the new message's ID and link.
+the new message's ID and link. The channel may be a thread (a forum post or a
+spun-off conversation) as well as a text or announcement channel.
 
 ## Editing embeds safely
 
@@ -284,9 +318,10 @@ moderate instead of failing later.
 
 ## Testing
 
-Run `npm test` to compile and run all 91 offline regression tests (reading, paging
-and filters, single-message and pin lookups, channel info, sending, embed editing,
-roles, channel permissions, webhooks, AutoMod, events, timeouts, onboarding, welcome screen and
+Run `npm test` to compile and run all 112 offline regression tests (reading, paging
+and filters, thread and forum resolution, single-message and pin lookups, channel
+info, sending, embed editing, roles, channel permissions, webhooks, AutoMod,
+events, timeouts, onboarding, welcome screen and
 channel edits). No bot token or Discord connection is needed. Tests use Node's built-in test runner.
 
 ```bash
@@ -444,6 +479,7 @@ lists the servers it can see.
 - 51 tools: Rules Screening read and write through the member-verification route; 80 offline tests.
 - 52 tools: several bots in one server process (`DISCORD_TOKENS` / `DISCORD_TOKEN_<name>`) with `list-servers`; posting to announcement channels.
 - 55 tools: webhooks (create with GitHub/Slack URLs and an optional URL file, list, delete); 91 offline tests.
+- 56 tools: forum and thread support — threads resolve by name, ID or link in the message tools, `list-threads` enumerates a channel's active and archived threads, forums report guidelines and tags in `get-channel-info`; 112 offline tests.
 - Robustness: the string `"null"` accepted as a clear, member lookup through REST search, bounded member fetches.
 
 ## Credits

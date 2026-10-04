@@ -1,9 +1,9 @@
-import { PermissionFlagsBits, TextChannel, NewsChannel, type Guild, type GuildBasedChannel, type GuildMember, type PermissionsString, type Role } from 'discord.js';
+import { PermissionFlagsBits, TextChannel, NewsChannel, ThreadChannel, type Guild, type GuildBasedChannel, type GuildMember, type PermissionsString, type Role } from 'discord.js';
 
-// A channel the tools can post to: a text channel or an announcement channel (discord.js's NewsChannel; same
-// send / messages / pins / topic / permission API).
-export type PostableChannel = TextChannel | NewsChannel;
-export const isPostable = (c: unknown): c is PostableChannel => c instanceof TextChannel || c instanceof NewsChannel;
+// A channel the tools can post to: a text channel, an announcement channel (discord.js's NewsChannel; same
+// send / messages / pins / topic / permission API), or a thread (forum post or spun-off conversation).
+export type PostableChannel = TextChannel | NewsChannel | ThreadChannel;
+export const isPostable = (c: unknown): c is PostableChannel => c instanceof TextChannel || c instanceof NewsChannel || c instanceof ThreadChannel;
 import { z } from 'zod';
 
 /** Lookups owned by index.ts (they close over the Discord client). */

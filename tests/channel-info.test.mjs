@@ -59,3 +59,72 @@ test('validation and lookup failures surface instead of partial results', async 
   await assert.rejects(getChannelInfo({}, async () => assert.fail('must validate first')));
   await assert.rejects(getChannelInfo({ channel: 'missing' }, async () => { throw new Error('Channel not found'); }), /Channel not found/);
 });
+
+test('a forum reports its guidelines as topic and its available tags, with no pins or overwrites', async () => {
+  const everyoneRole = { id: '123', name: '@everyone' };
+  const effective = new PermissionsBitField(PermissionsBitField.Default);
+  const forum = {
+    id: '456', type: 15, name: 'port-bugs', url: 'https://discord.com/channels/123/456',
+    guild: {
+      id: '123', name: 'Community',
+      roles: { everyone: everyoneRole, cache: new Collection() },
+      members: { cache: new Collection() },
+    },
+    parent: null, parentId: null,
+    topic: 'Post bugs here with logs attached', nsfw: false, rateLimitPerUser: 10,
+    createdAt: new Date('2026-09-20T00:00:00Z'),
+    permissionsFor: () => effective,
+    availableTags: [
+      { id: 'tag1', name: 'crash', moderated: false, emoji: { id: null, name: '💥' } },
+      { id: 'tag2', name: 'ui', moderated: true, emoji: null },
+    ],
+    // Forums have no messages manager, no overwrites of their own
+  };
+  const resolved = [];
+  const result = await getChannelInfo({ channel: 'port-bugs' }, async (...args) => {
+    resolved.push(args); return forum;
+  });
+  assert.deepEqual(resolved, [['port-bugs', undefined]]);
+  const info = JSON.parse(result.content[0].text);
+  assert.equal(info.name, '#port-bugs');
+  assert.equal(info.topic, 'Post bugs here with logs attached');
+  assert.equal(info.slowmodeSeconds, 10);
+  assert.equal(info.pinnedCount, 0);
+  assert.deepEqual(info.pinnedMessageIds, []);
+  assert.deepEqual(info.overwrites, []);
+  assert.deepEqual(info.availableTags, [
+    { id: 'tag1', name: 'crash', moderated: false, emoji: '💥' },
+    { id: 'tag2', name: 'ui', moderated: true, emoji: null },
+  ]);
+  assert.equal(info.thread, undefined);
+});
+
+test('a thread reports its parent, flags and applied tag names instead of overwrites', async () => {
+  const everyoneRole = { id: '123', name: '@everyone' };
+  const effective = new PermissionsBitField(PermissionsBitField.Default);
+  const threadChannel = {
+    id: '789', type: 11, name: 'Steam Deck Bug', url: 'https://discord.com/channels/123/789',
+    guild: {
+      id: '123', name: 'Community',
+      roles: { everyone: everyoneRole, cache: new Collection() },
+      members: { cache: new Collection() },
+    },
+    parent: { id: '456', name: 'port-bugs', availableTags: [{ id: 'tag1', name: 'crash', moderated: false, emoji: null }] },
+    parentId: '456',
+    nsfw: undefined, rateLimitPerUser: 0,
+    createdAt: new Date('2026-09-21T00:00:00Z'),
+    ownerId: '555', archived: true, locked: false, messageCount: 12, appliedTags: ['tag1', 'tagX'],
+    permissionsFor: () => effective,
+    messages: { fetchPinned: async () => new Collection([['5', { id: '5' }]]) },
+  };
+  const info = JSON.parse((await getChannelInfo({ channel: 'Steam Deck Bug' }, async () => threadChannel)).content[0].text);
+  assert.equal(info.category, 'port-bugs');
+  assert.equal(info.pinnedCount, 1);
+  assert.deepEqual(info.overwrites, []);
+  assert.equal(info.thread.parent, 'port-bugs');
+  assert.equal(info.thread.archived, true);
+  assert.equal(info.thread.messageCount, 12);
+  assert.equal(info.thread.ownerId, '555');
+  assert.deepEqual(info.thread.appliedTags, ['crash', 'tagX']);
+  assert.equal(info.availableTags, undefined);
+});
