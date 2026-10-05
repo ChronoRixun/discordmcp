@@ -5,8 +5,9 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
-import { ChannelType, PermissionFlagsBits, GuildMember, type GuildBasedChannel } from 'discord.js';
+import { ChannelType, PermissionFlagsBits, GuildMember, ThreadChannel, type ForumChannel, type GuildBasedChannel, type NewsChannel, type TextChannel } from 'discord.js';
 import { isPostable, type PostableChannel } from './shared.js';
+import { listThreads, parseChannelUrl, resolveChannel } from './threads.js';
 import { z } from 'zod';
 import { readMessages, getMessage, listPins } from './read-messages.js';
 import { editEmbed } from './edit-embed.js';
@@ -36,46 +37,28 @@ async function findGuild(guildIdentifier?: string) {
   return bots.findGuild(guildIdentifier);
 }
 
-// Helper function to find a channel by name or ID within a specific guild
+// Helper function to find a channel by name, ID or Discord link within a specific guild.
+// Text, announcement and thread channels resolve; a forum errors with a pointer to list-threads.
 async function findChannel(channelIdentifier: string, guildIdentifier?: string): Promise<PostableChannel> {
-  const guild = await findGuild(guildIdentifier);
-
-  // First try to fetch by ID
-  try {
-    const channel = await guild.client.channels.fetch(channelIdentifier);
-    if (isPostable(channel) && channel.guild.id === guild.id) {
-      return channel;
-    }
-  } catch {
-    // If fetching by ID fails, search by name in the specified guild
-    const channels = guild.channels.cache.filter(
-      (channel): channel is PostableChannel =>
-        isPostable(channel) &&
-        (channel.name.toLowerCase() === channelIdentifier.toLowerCase() ||
-         channel.name.toLowerCase() === channelIdentifier.toLowerCase().replace('#', ''))
-    );
-
-    if (channels.size === 0) {
-      const availableChannels = guild.channels.cache
-        .filter(isPostable)
-        .map(c => `"#${c.name}"`).join(', ');
-      throw new Error(`Channel "${channelIdentifier}" not found in server "${guild.name}". Available channels: ${availableChannels}`);
-    }
-    if (channels.size > 1) {
-      const channelList = channels.map(c => `#${c.name} (${c.id})`).join(', ');
-      throw new Error(`Multiple channels found with name "${channelIdentifier}" in server "${guild.name}": ${channelList}. Please specify the channel ID.`);
-    }
-    return channels.first()!;
-  }
-  throw new Error(`Channel "${channelIdentifier}" is not a text or announcement channel, or not found in server "${guild.name}"`);
+  return (await resolveChannel(await findGuild(guildIdentifier), channelIdentifier)) as PostableChannel;
 }
 
-// Any non-thread guild channel (text, voice, forum, announcement, stage, category) by ID or name.
+// The same lookup with forum channels allowed to resolve (get-channel-info reads their guidelines and tags).
+async function findChannelOrForum(channelIdentifier: string, guildIdentifier?: string): Promise<PostableChannel | ForumChannel> {
+  return resolveChannel(await findGuild(guildIdentifier), channelIdentifier, { includeForums: true });
+}
+
+// Any non-thread guild channel (text, voice, forum, announcement, stage, category) by ID, name or Discord link.
 async function findGuildChannel(channelIdentifier: string, guildIdentifier?: string): Promise<GuildBasedChannel> {
   const guild = await findGuild(guildIdentifier);
   await guild.channels.fetch();
-  const wanted = channelIdentifier.toLowerCase().replace(/^#/, '');
-  const byId = guild.channels.cache.get(channelIdentifier);
+  const url = parseChannelUrl(channelIdentifier);
+  if (url && url.serverId !== guild.id) {
+    throw new Error(`That link points to server ${url.serverId}, not "${guild.name}" (${guild.id}).`);
+  }
+  const target = url?.channelId ?? channelIdentifier;
+  const wanted = target.toLowerCase().replace(/^#/, '');
+  const byId = guild.channels.cache.get(target);
   if (byId && !byId.isThread()) return byId;
   const matches = guild.channels.cache.filter(c => !c.isThread() && c.name.toLowerCase() === wanted);
   if (matches.size === 0) {
@@ -544,6 +527,18 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         inputSchema: { type: "object", properties: { server: { type: "string" }, channel: { type: "string" } }, required: ["channel"] },
       },
       {
+        name: "list-threads",
+        description: "List threads (forum posts and spun-off conversations) newest first: name, ID, parent channel, owner, created time, message count, archived/locked flags and forum tags. With channel: that forum, text or announcement channel's active and recently archived threads. Without channel: every active thread in the server",
+        inputSchema: {
+          type: "object",
+          properties: {
+            server: { type: "string", description: 'Server name or ID (optional if bot is only in one server)' },
+            channel: { type: "string", description: 'Forum, text or announcement channel name or ID (omit for all active threads in the server)' },
+            limit: { type: "integer", minimum: 1, maximum: 100, default: 50, description: "Number of threads to return" },
+          },
+        },
+      },
+      {
         name: "get-channel-info",
         description: "Channel settings: topic, category, slowmode, pin count, effective @everyone permissions and permission overwrites",
         inputSchema: { type: "object", properties: { server: { type: "string" }, channel: { type: "string" } }, required: ["channel"] },
@@ -775,8 +770,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return await listPins(args, findChannel);
       }
 
+      case "list-threads": {
+        return await listThreads(args, { findGuild, findGuildChannel });
+      }
+
       case "get-channel-info": {
-        return await getChannelInfo(args, findChannel);
+        return await getChannelInfo(args, findChannelOrForum);
       }
 
       case "create-category": {
@@ -861,6 +860,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case "set-channel-topic": {
         const { server: srv, channel: chId, topic } = SetChannelTopicSchema.parse(args);
         const channel = await findChannel(chId, srv);
+        if (channel instanceof ThreadChannel) {
+          throw new Error(`Threads do not have topics; set the topic on the parent channel #${channel.parent?.name ?? '?'} instead.`);
+        }
         await channel.setTopic(topic);
         return {
           content: [{ type: "text", text: `Topic for #${channel.name} set to: ${topic}` }],
@@ -870,6 +872,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case "lock-channel": {
         const { server: srv, channel: chId } = LockChannelSchema.parse(args);
         const channel = await findChannel(chId, srv);
+        if (channel instanceof ThreadChannel) {
+          throw new Error(`Threads inherit permissions from their parent; lock #${channel.parent?.name ?? '?'} instead.`);
+        }
         const everyoneRole = channel.guild.roles.everyone;
         await channel.permissionOverwrites.edit(everyoneRole, {
           SendMessages: false,
@@ -961,11 +966,17 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case "create-invite": {
         const { server: srv, channel: chId, maxAge, maxUses } = CreateInviteSchema.parse(args);
         const guild = await findGuild(srv);
-        let channel: PostableChannel;
+        let channel: TextChannel | NewsChannel;
         if (chId) {
-          channel = await findChannel(chId, srv);
+          const resolved = await findChannel(chId, srv);
+          if (resolved instanceof ThreadChannel) {
+            throw new Error(`Invites cannot target a thread; invite to the parent channel #${resolved.parent?.name ?? '?'} instead.`);
+          }
+          channel = resolved;
         } else {
-          const first = guild.channels.cache.find(isPostable);
+          const first = guild.channels.cache.find(
+            (c): c is TextChannel | NewsChannel => isPostable(c) && !(c instanceof ThreadChannel),
+          );
           if (!first) throw new Error("No text channel found for invite");
           channel = first;
         }
@@ -1005,6 +1016,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case "set-slowmode": {
         const { server: srv, channel: chId, seconds } = SetSlowmodeSchema.parse(args);
         const channel = await findChannel(chId, srv);
+        if (channel instanceof ThreadChannel) {
+          throw new Error(`Threads do not support set-slowmode here; slowmode on #${channel.parent?.name ?? '?'} applies to its threads.`);
+        }
         await channel.setRateLimitPerUser(seconds);
         return { content: [{ type: "text", text: seconds > 0 ? `#${channel.name} slowmode set to ${seconds}s.` : `#${channel.name} slowmode disabled.` }] };
       }
@@ -1012,6 +1026,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case "unlock-channel": {
         const { server: srv, channel: chId } = UnlockChannelSchema.parse(args);
         const channel = await findChannel(chId, srv);
+        if (channel instanceof ThreadChannel) {
+          throw new Error(`Threads inherit permissions from their parent; unlock #${channel.parent?.name ?? '?'} instead.`);
+        }
         const everyoneRole = channel.guild.roles.everyone;
         await channel.permissionOverwrites.edit(everyoneRole, {
           SendMessages: null,
